@@ -290,15 +290,15 @@ def upload_pdf():
 
         # Return extracted full text plus the extracted reference metadata
         return jsonify({"extracted_text": text, "references": cleaned})
-
-# Also map trailing-slash variant to the same handler to avoid 405 from slash mismatch
-app.add_url_rule('/api/upload-pdf/', endpoint='upload_pdf_slash', view_func=upload_pdf, methods=['POST','OPTIONS','GET'])
-
     except Exception as e:
         # Catch-all for unexpected errors
         print(f"[ERROR] 업로드 처리 중 예외 발생: {str(e)}")
         logging.exception('업로드 처리 중 예외')
         return jsonify({"error": f"서버 처리 오류: {str(e)}"}), 500
+
+
+# Also map trailing-slash variant to the same handler to avoid 405 from slash mismatch
+app.add_url_rule('/api/upload-pdf/', endpoint='upload_pdf_slash', view_func=upload_pdf, methods=['POST','OPTIONS','GET'])
 
 
 @app.errorhandler(405)
