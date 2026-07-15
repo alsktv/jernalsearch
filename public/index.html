@@ -91,9 +91,14 @@ async function uploadFile(file){
     statusText.textContent = 'Gemini 참고문헌 분석 중...';
     setPhase(2);
 
+    async function extractErrorMessage(response){
+      try{ const j = await response.json(); if(j && j.error) return j.error; }catch(e){}
+      try{ const t = await response.text(); if(t) return t; }catch(e){}
+      return `HTTP ${response.status} ${response.statusText}`;
+    }
+
     if(!resp.ok){
-      const dataErr = await resp.json().catch(()=>({error:'unknown'}));
-      const errMsg = dataErr.error || `서버 오류: ${resp.status}`;
+      const errMsg = await extractErrorMessage(resp);
       statusText.textContent = '오류 발생';
       const errorArea = document.getElementById('error-area');
       if(errorArea){ errorArea.style.display='block'; errorArea.textContent = errMsg; }
