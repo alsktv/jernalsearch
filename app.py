@@ -25,19 +25,29 @@ app = Flask(__name__, template_folder='templates')
 
 # Configure CORS with explicit settings
 CORS(app, 
-     resources={r"/api/*": {"origins": "*", "methods": ["GET", "POST", "OPTIONS", "PUT", "DELETE"], "allow_headers": ["Content-Type"]}},
+     resources={r"/api/*": {"origins": "*", "methods": ["GET", "POST", "OPTIONS", "PUT", "DELETE"], "allow_headers": ["Content-Type", "Authorization"]}},
      supports_credentials=False,
-     max_age=3600)
+     max_age=86400,  # 24 hours
+     expose_headers=['Content-Type'])
 
 # Additional CORS header injection
 @app.after_request
 def after_request(response):
     """Ensure CORS headers are set on all responses"""
+    # Allow all origins (including Cloudflare proxies)
     response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
-    response.headers.add('Access-Control-Max-Age', '3600')
-    print(f"[DEBUG] Added CORS headers to response: {response.status}")
+    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE, HEAD')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+    response.headers.add('Access-Control-Max-Age', '86400')
+    response.headers.add('Access-Control-Expose-Headers', 'Content-Type')
+    
+    # Disable caching for API responses
+    if request.path.startswith('/api/'):
+        response.headers.add('Cache-Control', 'no-cache, no-store, must-revalidate')
+        response.headers.add('Pragma', 'no-cache')
+        response.headers.add('Expires', '0')
+    
+    print(f"[DEBUG] Response to {request.method} {request.path}: {response.status}")
     return response
 
 # Use GEMINI_API_KEY environment variable per requirements
@@ -272,6 +282,13 @@ def search_semanticscholar_for_title(title: str) -> Dict[str, Any]:
 @app.route('/')
 def index():
     return render_template('index.html')
+
+
+@app.route('/api/test', methods=['GET', 'POST', 'OPTIONS'])
+def test():
+    """Simple test endpoint to verify CORS is working"""
+    print(f"[DEBUG] /api/test hit with method: {request.method}")
+    return jsonify({"status": "ok", "message": "Server is responding to requests!"})
 
 
 @app.route('/api/upload-pdf', methods=['GET', 'POST', 'OPTIONS'])
