@@ -261,48 +261,94 @@ def index():
 @app.route('/api/upload-pdf', methods=['POST'])
 def upload_pdf():
     """Accepts a multipart/form-data file field named 'file', extracts references.
-    Enhanced error reporting: prints and returns detailed error messages for debugging.
+    Enhanced error reporting: returns file name, detailed errors, and debug info.
     """
     try:
         print(f"[DEBUG] Incoming request: method={request.method}, path={request.path}, content_type={request.content_type}")
 
         uploaded = request.files.get('file')
         print(f"[DEBUG] request.files keys: {list(request.files.keys())}")
+        
         if not uploaded:
             print("[ERROR] no file part in request.files")
-            return jsonify({"error": "no file uploaded. Ensure the request is multipart/form-data with field name 'file'."}), 400
+            return jsonify({
+                "success": False,
+                "filename": None,
+                "error": "no file uploaded. Ensure the request is multipart/form-data with field name 'file'.",
+                "debug_info": f"Available fields: {list(request.files.keys())}"
+            }), 400
+
+        # Capture filename for error reporting
+        filename = uploaded.filename or "unknown"
+        print(f"[DEBUG] Processing file: {filename}")
 
         # Read bytes
         try:
             pdf_bytes = uploaded.read()
             print(f"[DEBUG] Read pdf bytes length: {len(pdf_bytes) if pdf_bytes else 0}")
+            
+            if not pdf_bytes:
+                return jsonify({
+                    "success": False,
+                    "filename": filename,
+                    "error": "File is empty (0 bytes)",
+                    "debug_info": "The uploaded file contains no data"
+                }), 400
+                
         except Exception as e:
-            print(f"[ERROR] 파일 읽기 실패: {str(e)}")
+            error_msg = str(e)
+            print(f"[ERROR] 파일 읽기 실패: {error_msg}")
             logging.exception('파일 읽기 실패')
-            return jsonify({"error": f"서버 처리 오류: 파일 읽기 실패: {str(e)}"}), 500
+            return jsonify({
+                "success": False,
+                "filename": filename,
+                "error": f"File read failed: {error_msg}",
+                "debug_info": f"Exception type: {type(e).__name__}"
+            }), 500
 
         # Extract text
         try:
             text = extract_text_from_pdf_bytes(pdf_bytes, last_n_pages=5)
-            logging.info('Extracted text length=%d', len(text) if text else 0)
+            logging.info('Extracted text length=%d from file: %s', len(text) if text else 0, filename)
+            print(f"[DEBUG] Successfully extracted text from {filename}: {len(text)} characters")
+            
         except Exception as e:
-            print(f"[ERROR] PDF 파싱 중 에러 발생: {str(e)}")
+            error_msg = str(e)
+            print(f"[ERROR] PDF 파싱 중 에러 발생 ({filename}): {error_msg}")
             logging.exception('PDF 파싱 실패')
-            return jsonify({"error": f"서버 처리 오류: PDF 파싱 실패: {str(e)}"}), 500
+            return jsonify({
+                "success": False,
+                "filename": filename,
+                "error": f"PDF parsing failed: {error_msg}",
+                "debug_info": f"Exception: {type(e).__name__}. Ensure the file is a valid PDF."
+            }), 500
 
         # Call Gemini to extract references
         try:
             refs = call_gemini_extract_references(text, max_items=5)
+            print(f"[DEBUG] Extracted {len(refs)} references from {filename}")
+            
         except Exception as e:
-            print(f"[ERROR] Gemini 처리 중 에러 발생: {str(e)}")
+            error_msg = str(e)
+            print(f"[ERROR] Gemini 처리 중 에러 발생 ({filename}): {error_msg}")
             logging.exception('Gemini 호출 실패')
-            return jsonify({"error": f"서버 처리 오류: Gemini 호출 실패: {str(e)}"}), 500
+            return jsonify({
+                "success": False,
+                "filename": filename,
+                "error": f"Gemini processing failed: {error_msg}",
+                "debug_info": f"Exception: {type(e).__name__}. Check GEMINI_API_KEY environment variable."
+            }), 500
 
         # Validate refs
         if not isinstance(refs, list):
-            print(f"[ERROR] Gemini 반환 형식 오류: {type(refs)}")
+            print(f"[ERROR] Gemini 반환 형식 오류 ({filename}): {type(refs)}")
             logging.error('Gemini 반환 형식 오류')
-            return jsonify({"error": "서버 처리 오류: Gemini 반환 형식이 올바르지 않습니다."}), 500
+            return jsonify({
+                "success": False,
+                "filename": filename,
+                "error": "Invalid response format from Gemini",
+                "debug_info": f"Expected list, got {type(refs).__name__}"
+            }), 500
 
         # Clean and prepare references
         cleaned = []
@@ -324,13 +370,35 @@ def upload_pdf():
             seen.add(key)
             cleaned.append({"title": title, "authors": authors, "year": year})
 
+        print(f"[DEBUG] Successfully processed {filename}: {len(cleaned)} cleaned references")
+        
         # Return extracted full text plus the extracted reference metadata
-        return jsonify({"extracted_text": text, "references": cleaned})
-
+        return jsonify({
+            "success": True,
+            "filename": filename,
+            "extracted_text": text,
+            "references": cleaned,
+            "reference_count": len(cleaned)
+        }), 200
+        
     except Exception as e:
-        print(f"[ERROR] 업로드 처리 중 예외 발생: {str(e)}")
+        error_msg = str(e)
+        filename = "unknown"
+        try:
+            uploaded = request.files.get('file')
+            if uploaded:
+                filename = uploaded.filename or "unknown"
+        except:
+            pass
+        
+        print(f"[ERROR] 업로드 처리 중 예외 발생 ({filename}): {error_msg}")
         logging.exception('업로드 처리 중 예외')
-        return jsonify({"error": f"서버 처리 오류: {str(e)}"}), 500
+        return jsonify({
+            "success": False,
+            "filename": filename,
+            "error": f"Server error: {error_msg}",
+            "debug_info": f"Exception type: {type(e).__name__}"
+        }), 500
 
 
 @app.errorhandler(405)

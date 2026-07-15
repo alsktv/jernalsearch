@@ -36,7 +36,11 @@
 
     <div id="status" style="display:none">
       <div class="status">진행 상황: <span id="status-text"></span></div>
-      <div id="error-area" style="display:none;color:#b91c1c;margin-top:8px"></div>
+      <div style="margin-top:10px; padding:10px; background:#f0f4f8; border-radius:6px; display:none" id="file-info">
+        <strong>파일명:</strong> <span id="filename-display" style="font-family:monospace; color:#1e40af"></span>
+      </div>
+      <div id="error-area" style="display:none;color:#b91c1c;margin-top:12px;padding:10px;background:#fee2e2;border-radius:6px;border-left:4px solid #dc2626"></div>
+      <div id="debug-area" style="display:none;color:#7c2d12;margin-top:8px;padding:8px;background:#fed7aa;border-radius:4px;font-size:12px;font-family:monospace"></div>
       <div class="step" id="step-upload">PDF 구조 파싱 중...</div>
       <div class="step" id="step-analyze">Gemini 참고문헌 분석 중...</div>
       <div class="step" id="step-match">참고문헌 정리 중...</div>
@@ -82,6 +86,17 @@ async function uploadFile(file){
   statusText.textContent = '파일 업로드 시작';
   setPhase(1);
 
+  // Display filename
+  const fileInfoEl = document.getElementById('file-info');
+  const filenameDisplay = document.getElementById('filename-display');
+  const errorArea = document.getElementById('error-area');
+  const debugArea = document.getElementById('debug-area');
+  
+  if (fileInfoEl && filenameDisplay) {
+    filenameDisplay.textContent = file.name;
+    fileInfoEl.style.display = 'block';
+  }
+
   const fd = new FormData(); fd.append('file', file);
   try{
     statusText.textContent = 'PDF 구조 파싱 중...';
@@ -100,9 +115,27 @@ async function uploadFile(file){
     if(!resp.ok){
       const errMsg = await extractErrorMessage(resp);
       statusText.textContent = '오류 발생';
-      const errorArea = document.getElementById('error-area');
-      if(errorArea){ errorArea.style.display='block'; errorArea.textContent = errMsg; }
-      resultsEl.innerHTML = `<div class="no-results">${errMsg}</div>`;
+      
+      // Try to get JSON response with more details
+      let fullError = errMsg;
+      let debugInfo = '';
+      try {
+        const respData = await resp.json();
+        if (respData.error) fullError = respData.error;
+        if (respData.debug_info) debugInfo = respData.debug_info;
+      } catch(e) {}
+      
+      if(errorArea){ 
+        errorArea.style.display='block'; 
+        errorArea.innerHTML = `<strong>❌ 오류 발생:</strong><br>${fullError}`;
+      }
+      
+      if (debugInfo && debugArea) {
+        debugArea.style.display='block';
+        debugArea.innerHTML = `<strong>디버그 정보:</strong> ${debugInfo}`;
+      }
+      
+      resultsEl.innerHTML = `<div class="no-results"><strong>${errMsg}</strong></div>`;
       return;
     }
 
@@ -110,13 +143,24 @@ async function uploadFile(file){
     setPhase(3);
 
     const data = await resp.json();
+    
+    // Display success info
+    if (data.filename && errorArea) {
+      errorArea.style.display='none';
+    }
+    if (debugArea) {
+      debugArea.style.display='none';
+    }
+    
     status.style.display = 'none';
     renderResults(data);
   }catch(err){
     statusText.textContent = '네트워크 오류';
-    const errorArea = document.getElementById('error-area');
     const msg = err && err.message ? err.message : String(err);
-    if(errorArea){ errorArea.style.display='block'; errorArea.textContent = msg; }
+    if(errorArea){ 
+      errorArea.style.display='block'; 
+      errorArea.innerHTML = `<strong>❌ 네트워크 오류:</strong><br>${msg}`;
+    }
     resultsEl.innerHTML = `<div class="no-results">업로드 실패: ${msg}</div>`;
   }
 }
@@ -127,6 +171,15 @@ function renderResults(data){
     return;
   }
   resultsEl.innerHTML = '';
+
+  // Show success info with filename
+  if (data.filename) {
+    const successDiv = document.createElement('div');
+    successDiv.style.cssText = 'background:#dcfce7;color:#166534;padding:12px;border-radius:6px;margin-bottom:12px;border-left:4px solid #22c55e';
+    successDiv.innerHTML = `<strong>✅ 성공!</strong> 파일 <strong style="font-family:monospace">${data.filename}</strong> 처리 완료<br>
+      <small>참고문헌 ${data.reference_count || 0}개 추출됨</small>`;
+    resultsEl.appendChild(successDiv);
+  }
 
   // extracted text
   const textCard = document.createElement('div'); textCard.className='card';
