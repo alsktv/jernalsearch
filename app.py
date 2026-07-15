@@ -200,8 +200,11 @@ def index():
     return render_template('index.html')
 
 
-@app.route('/api/upload-pdf', methods=['POST'])
+@app.route('/api/upload-pdf', methods=['POST','OPTIONS'])
 def upload_pdf():
+    # Support OPTIONS preflight (CORS) and return a friendly JSON response
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok", "message": "CORS preflight accepted"}), 200
     """Accepts a multipart/form-data file field named 'file', extracts references, searches for PDFs, returns list.
     Enhanced error reporting: prints and returns detailed error messages for debugging.
     """
@@ -285,6 +288,17 @@ def upload_pdf():
         logging.exception('업로드 처리 중 예외')
         return jsonify({"error": f"서버 처리 오류: {str(e)}"}), 500
 
+
+@app.errorhandler(405)
+def method_not_allowed(e):
+    # Return JSON with a clear Korean explanation when an unsupported HTTP method is used
+    logging.warning('Method Not Allowed: %s %s', request.method, request.path)
+    return jsonify({"error": "허용되지 않은 요청 방식입니다. 이 엔드포인트는 POST 요청만 허용합니다."}), 405
+
+@app.errorhandler(404)
+def not_found(e):
+    logging.warning('Not Found: %s %s', request.method, request.path)
+    return jsonify({"error": "요청한 리소스를 찾을 수 없습니다 (404). URL을 확인하세요."}), 404
 
 if __name__ == '__main__':
     # Default to port 5002 as required
