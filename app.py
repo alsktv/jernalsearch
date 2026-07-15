@@ -5,7 +5,7 @@ import logging
 import urllib.parse
 from typing import List, Dict, Any
 from flask import Flask, request, jsonify, render_template
-from flask_cors import CORS, cross_origin
+from flask_cors import CORS
 import requests
 from pypdf import PdfReader
 
@@ -22,7 +22,23 @@ import google.generativeai as genai
 
 logging.basicConfig(level=logging.INFO)
 app = Flask(__name__, template_folder='templates')
-CORS(app)
+
+# Configure CORS with explicit settings
+CORS(app, 
+     resources={r"/api/*": {"origins": "*", "methods": ["GET", "POST", "OPTIONS", "PUT", "DELETE"], "allow_headers": ["Content-Type"]}},
+     supports_credentials=False,
+     max_age=3600)
+
+# Additional CORS header injection
+@app.after_request
+def after_request(response):
+    """Ensure CORS headers are set on all responses"""
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+    response.headers.add('Access-Control-Max-Age', '3600')
+    print(f"[DEBUG] Added CORS headers to response: {response.status}")
+    return response
 
 # Use GEMINI_API_KEY environment variable per requirements
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
@@ -259,14 +275,17 @@ def index():
 
 
 @app.route('/api/upload-pdf', methods=['GET', 'POST', 'OPTIONS'])
-@cross_origin(methods=['GET', 'POST', 'OPTIONS'], send_wildcard=True, max_age=3600)
 def upload_pdf():
     """Accepts a multipart/form-data file field named 'file', extracts references.
     Enhanced error reporting: returns file name, detailed errors, and debug info.
     """
-    # Handle OPTIONS preflight
+    print(f"[DEBUG] ===== REQUEST TO /api/upload-pdf =====")
+    print(f"[DEBUG] Method: {request.method}")
+    print(f"[DEBUG] Origin: {request.headers.get('Origin')}")
+    
+    # Handle OPTIONS preflight (after_request will add CORS headers)
     if request.method == 'OPTIONS':
-        print(f"[DEBUG] OPTIONS preflight handled by @cross_origin decorator")
+        print(f"[DEBUG] OPTIONS preflight - returning 200 OK")
         return jsonify({"status": "ok"}), 200
     
     # Handle GET request (info)
