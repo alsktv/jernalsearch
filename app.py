@@ -5,7 +5,7 @@ import logging
 import urllib.parse
 from typing import List, Dict, Any
 from flask import Flask, request, jsonify, render_template
-from flask_cors import CORS
+from flask_cors import CORS, cross_origin
 import requests
 from pypdf import PdfReader
 
@@ -258,27 +258,20 @@ def index():
     return render_template('index.html')
 
 
-@app.before_request
-def handle_preflight():
-    """Handle CORS preflight requests explicitly"""
-    if request.method == 'OPTIONS':
-        print(f"[DEBUG] OPTIONS preflight received: path={request.path}, origin={request.headers.get('Origin')}")
-        response = jsonify({"status": "preflight ok"})
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS, GET')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
-        return response, 200
-
-
-@app.route('/api/upload-pdf', methods=['POST', 'OPTIONS'])
+@app.route('/api/upload-pdf', methods=['GET', 'POST', 'OPTIONS'])
+@cross_origin(methods=['GET', 'POST', 'OPTIONS'], send_wildcard=True, max_age=3600)
 def upload_pdf():
     """Accepts a multipart/form-data file field named 'file', extracts references.
     Enhanced error reporting: returns file name, detailed errors, and debug info.
     """
     # Handle OPTIONS preflight
     if request.method == 'OPTIONS':
-        print(f"[DEBUG] OPTIONS request to /api/upload-pdf")
+        print(f"[DEBUG] OPTIONS preflight handled by @cross_origin decorator")
         return jsonify({"status": "ok"}), 200
+    
+    # Handle GET request (info)
+    if request.method == 'GET':
+        return jsonify({"message": "PDF upload endpoint. Send POST with multipart/form-data and 'file' field."}), 200
     
     try:
         print(f"[DEBUG] ===== PDF UPLOAD REQUEST START =====")
