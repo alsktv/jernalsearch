@@ -9,6 +9,14 @@ from flask_cors import CORS
 import requests
 from pypdf import PdfReader
 
+# Try to import pdfplumber as fallback
+try:
+    import pdfplumber
+    HAS_PDFPLUMBER = True
+except ImportError:
+    HAS_PDFPLUMBER = False
+    pdfplumber = None
+
 # Google Generative AI (Gemini)
 import google.generativeai as genai
 
@@ -30,31 +38,81 @@ SEMANTIC_SCHOLAR_BASE = 'https://api.semanticscholar.org/graph/v1'
 
 
 def extract_text_from_pdf_bytes(pdf_bytes: bytes, last_n_pages: int = 5) -> str:
-    """Extract text from the last_n_pages of the PDF; if empty, fall back to whole document."""
-    reader = PdfReader(io.BytesIO(pdf_bytes))
-    num_pages = len(reader.pages)
-    start = max(0, num_pages - last_n_pages)
-    text_parts: List[str] = []
-    for i in range(start, num_pages):
+    """Extract text from the last_n_pages of the PDF using pypdf; fallback to pdfplumber if needed."""
+    text = ""
+    
+    # Try pypdf first
+    try:
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        num_pages = len(reader.pages)
+        start = max(0, num_pages - last_n_pages)
+        text_parts: List[str] = []
+        
+        for i in range(start, num_pages):
+            try:
+                page = reader.pages[i]
+                txt = page.extract_text() or ""
+                text_parts.append(txt)
+            except Exception as e:
+                logging.warning(f'Failed to extract text from pypdf page {i}: {e}')
+                continue
+        
+        text = "\n".join(text_parts).strip()
+        
+        # If last_n_pages returned empty, try full document
+        if not text:
+            text_parts = []
+            for i in range(num_pages):
+                try:
+                    page = reader.pages[i]
+                    txt = page.extract_text() or ""
+                    text_parts.append(txt)
+                except Exception as e:
+                    logging.warning(f'Failed to extract text from pypdf page {i}: {e}')
+                    continue
+            text = "\n".join(text_parts)
+    
+    except Exception as e:
+        logging.warning(f'pypdf extraction failed: {e}. Trying pdfplumber...')
+    
+    # Fallback to pdfplumber if pypdf didn't work or returned empty
+    if not text and HAS_PDFPLUMBER:
         try:
-            page = reader.pages[i]
-            txt = page.extract_text() or ""
-            text_parts.append(txt)
-        except Exception:
-            continue
-    combined = "\n".join(text_parts).strip()
-    if combined:
-        return combined
-    # fallback to entire document
-    text_parts = []
-    for i in range(num_pages):
-        try:
-            page = reader.pages[i]
-            txt = page.extract_text() or ""
-            text_parts.append(txt)
-        except Exception:
-            continue
-    return "\n".join(text_parts)
+            with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                num_pages = len(pdf.pages)
+                start = max(0, num_pages - last_n_pages)
+                text_parts = []
+                
+                for i in range(start, num_pages):
+                    try:
+                        page = pdf.pages[i]
+                        txt = page.extract_text() or ""
+                        text_parts.append(txt)
+                    except Exception as e:
+                        logging.warning(f'Failed to extract text from pdfplumber page {i}: {e}')
+                        continue
+                
+                text = "\n".join(text_parts).strip()
+                
+                # If last_n_pages returned empty, try full document
+                if not text:
+                    text_parts = []
+                    for i in range(num_pages):
+                        try:
+                            page = pdf.pages[i]
+                            txt = page.extract_text() or ""
+                            text_parts.append(txt)
+                        except Exception as e:
+                            logging.warning(f'Failed to extract text from pdfplumber page {i}: {e}')
+                            continue
+                    text = "\n".join(text_parts)
+        except Exception as e:
+            logging.error(f'pdfplumber extraction also failed: {e}')
+    
+    if not text:
+        raise ValueError("Unable to extract text from PDF using any available method")
+    
+    return text
 
 
 def call_gemini_extract_references(text: str, max_items: int = 5) -> List[Dict[str, Any]]:
@@ -200,42 +258,20 @@ def index():
     return render_template('index.html')
 
 
-@app.before_request
-def _handle_global_options():
-    # Ensure OPTIONS preflight is answered globally (helps proxies and some hosting setups)
-    if request.method == 'OPTIONS':
-        return jsonify({"status": "ok", "message": "CORS preflight accepted"}), 200
-
-@app.route('/api/upload-pdf', methods=['POST','OPTIONS','GET'])
+@app.post('/api/upload-pdf')
 def upload_pdf():
-    # Support OPTIONS preflight (CORS) and simple GET informational response
-    if request.method == 'OPTIONS':
-        print(f"[DEBUG] OPTIONS preflight received for {request.path}")
-        return jsonify({"status": "ok", "message": "CORS preflight accepted"}), 200
-    if request.method == 'GET':
-        print(f"[DEBUG] GET received for {request.path}")
-        return jsonify({"message": "이 엔드포인트는 PDF 업로드(POST)용입니다. 파일 업로드는 multipart/form-data로 'file' 필드 사용."}), 200
-
-    # Log request metadata to help diagnose 405 issues
-    try:
-        print(f"[DEBUG] Incoming request: method={request.method}, path={request.path}, content_type={request.content_type}, content_length={request.content_length}")
-        # Print a subset of headers for visibility
-        headers_to_log = ['Origin','Referer','User-Agent','Content-Type']
-        hdrs = {k: request.headers.get(k) for k in headers_to_log}
-        print(f"[DEBUG] Incoming headers: {hdrs}")
-    except Exception as e:
-        print(f"[DEBUG] Failed to log request metadata: {e}")
-
-    """Accepts a multipart/form-data file field named 'file', extracts references, searches for PDFs, returns list.
+    """Accepts a multipart/form-data file field named 'file', extracts references.
     Enhanced error reporting: prints and returns detailed error messages for debugging.
     """
-    uploaded = request.files.get('file')
-    print(f"[DEBUG] request.files keys: {list(request.files.keys())}")
-    if not uploaded:
-        print("[ERROR] no file part in request.files")
-        return jsonify({"error": "no file uploaded. Ensure the request is multipart/form-data with field name 'file'."}), 400
-
     try:
+        print(f"[DEBUG] Incoming request: method={request.method}, path={request.path}, content_type={request.content_type}")
+
+        uploaded = request.files.get('file')
+        print(f"[DEBUG] request.files keys: {list(request.files.keys())}")
+        if not uploaded:
+            print("[ERROR] no file part in request.files")
+            return jsonify({"error": "no file uploaded. Ensure the request is multipart/form-data with field name 'file'."}), 400
+
         # Read bytes
         try:
             pdf_bytes = uploaded.read()
@@ -268,7 +304,7 @@ def upload_pdf():
             logging.error('Gemini 반환 형식 오류')
             return jsonify({"error": "서버 처리 오류: Gemini 반환 형식이 올바르지 않습니다."}), 500
 
-        # Clean and prepare references (no Semantic Scholar lookup)
+        # Clean and prepare references
         cleaned = []
         seen = set()
         for r in refs:
@@ -290,29 +326,24 @@ def upload_pdf():
 
         # Return extracted full text plus the extracted reference metadata
         return jsonify({"extracted_text": text, "references": cleaned})
+
     except Exception as e:
-        # Catch-all for unexpected errors
         print(f"[ERROR] 업로드 처리 중 예외 발생: {str(e)}")
         logging.exception('업로드 처리 중 예외')
         return jsonify({"error": f"서버 처리 오류: {str(e)}"}), 500
 
 
-# Also map trailing-slash variant to the same handler to avoid 405 from slash mismatch
-app.add_url_rule('/api/upload-pdf/', endpoint='upload_pdf_slash', view_func=upload_pdf, methods=['POST','OPTIONS','GET'])
-
-
 @app.errorhandler(405)
 def method_not_allowed(e):
-    # Return JSON with a clear Korean explanation when an unsupported HTTP method is used
-    logging.warning('Method Not Allowed: %s %s', request.method, request.path)
-    return jsonify({"error": "허용되지 않은 요청 방식입니다. 이 엔드포인트는 POST 요청만 허용합니다."}), 405
+    return jsonify({"error": "Method Not Allowed. This endpoint only accepts POST requests."}), 405
 
 @app.errorhandler(404)
 def not_found(e):
-    logging.warning('Not Found: %s %s', request.method, request.path)
-    return jsonify({"error": "요청한 리소스를 찾을 수 없습니다 (404). URL을 확인하세요."}), 404
+    return jsonify({"error": "Not Found (404). Please check the URL."}), 404
 
 if __name__ == '__main__':
-    # Default to port 5002 as required
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5002)), debug=True)
+    port = int(os.environ.get('PORT', 5002))
+    print(f"[INFO] Starting server on port {port}")
+    print(f"[INFO] pdfplumber available: {HAS_PDFPLUMBER}")
+    app.run(host='0.0.0.0', port=port, debug=True)
 
