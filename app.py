@@ -258,7 +258,7 @@ def index():
     return render_template('index.html')
 
 
-@app.post('/api/upload-pdf')
+@app.route('/api/upload-pdf', methods=['POST'])
 def upload_pdf():
     """Accepts a multipart/form-data file field named 'file', extracts references.
     Enhanced error reporting: prints and returns detailed error messages for debugging.
