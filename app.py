@@ -210,20 +210,36 @@ def _handle_global_options():
 def upload_pdf():
     # Support OPTIONS preflight (CORS) and simple GET informational response
     if request.method == 'OPTIONS':
+        print(f"[DEBUG] OPTIONS preflight received for {request.path}")
         return jsonify({"status": "ok", "message": "CORS preflight accepted"}), 200
     if request.method == 'GET':
+        print(f"[DEBUG] GET received for {request.path}")
         return jsonify({"message": "이 엔드포인트는 PDF 업로드(POST)용입니다. 파일 업로드는 multipart/form-data로 'file' 필드 사용."}), 200
+
+    # Log request metadata to help diagnose 405 issues
+    try:
+        print(f"[DEBUG] Incoming request: method={request.method}, path={request.path}, content_type={request.content_type}, content_length={request.content_length}")
+        # Print a subset of headers for visibility
+        headers_to_log = ['Origin','Referer','User-Agent','Content-Type']
+        hdrs = {k: request.headers.get(k) for k in headers_to_log}
+        print(f"[DEBUG] Incoming headers: {hdrs}")
+    except Exception as e:
+        print(f"[DEBUG] Failed to log request metadata: {e}")
+
     """Accepts a multipart/form-data file field named 'file', extracts references, searches for PDFs, returns list.
     Enhanced error reporting: prints and returns detailed error messages for debugging.
     """
     uploaded = request.files.get('file')
+    print(f"[DEBUG] request.files keys: {list(request.files.keys())}")
     if not uploaded:
-        return jsonify({"error": "no file uploaded"}), 400
+        print("[ERROR] no file part in request.files")
+        return jsonify({"error": "no file uploaded. Ensure the request is multipart/form-data with field name 'file'."}), 400
 
     try:
         # Read bytes
         try:
             pdf_bytes = uploaded.read()
+            print(f"[DEBUG] Read pdf bytes length: {len(pdf_bytes) if pdf_bytes else 0}")
         except Exception as e:
             print(f"[ERROR] 파일 읽기 실패: {str(e)}")
             logging.exception('파일 읽기 실패')
@@ -274,6 +290,9 @@ def upload_pdf():
 
         # Return extracted full text plus the extracted reference metadata
         return jsonify({"extracted_text": text, "references": cleaned})
+
+# Also map trailing-slash variant to the same handler to avoid 405 from slash mismatch
+app.add_url_rule('/api/upload-pdf/', endpoint='upload_pdf_slash', view_func=upload_pdf, methods=['POST','OPTIONS','GET'])
 
     except Exception as e:
         # Catch-all for unexpected errors
