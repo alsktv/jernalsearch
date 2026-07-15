@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>논문 참고문헌 추출기</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; background:#f7f8fb; color:#111; margin:0; padding:20px }
+    .container { max-width:900px; margin:0 auto }
+    .dropzone { border:2px dashed #cbd5e1; border-radius:8px; padding:30px; text-align:center; background:#fff; cursor:pointer }
+    .dropzone.dragover { border-color:#3b82f6; box-shadow:0 4px 20px rgba(59,130,246,0.08) }
+    .hint { color:#64748b; margin-top:6px }
+    .status { margin-top:18px; font-weight:600 }
+    .dots::after { content: ''; display:inline-block; width:1em; animation: dots 1s steps(5, end) infinite }
+    @keyframes dots { 0% { content: "" } 20% { content: "." } 40% { content: ".." } 60% { content: "..." } 100% { content: "" } }
+    .results { margin-top:20px }
+    .card { background:#fff; border-radius:8px; padding:16px; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 6px 18px rgba(15,23,42,0.04) }
+    .meta { max-width:76% }
+    .title { font-size:15px; font-weight:700; color:#0f172a }
+    .sub { font-size:13px; color:#475569; margin-top:6px }
+    .download { background:#2563eb; color:#fff; padding:10px 14px; border-radius:6px; text-decoration:none; display:inline-block }
+    .not-available { color:#94a3b8; font-weight:600 }
+    .loader-step { margin-top:8px; color:#334155 }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>논문 참고문헌 추출 및 하위 논문 PDF 검색</h2>
+    <div id="dropzone" class="dropzone">
+      <p style="margin:0">여기에 논문 PDF 파일을 드래그하거나 클릭하여 업로드하세요</p>
+      <p class="hint">(References 섹션을 분석하여 하위 논문 제목을 추출하고 Open Access PDF 링크를 검색합니다)</p>
+      <input id="fileinput" type="file" accept="application/pdf" style="display:none">
+    </div>
+
+    <div id="status" class="status" style="display:none">상태: <span id="status-text"></span><span class="dots"></span></div>
+    <div id="loader-steps" style="display:none">
+      <div class="loader-step" id="step-upload">업로드된 PDF 분석 중...</div>
+      <div class="loader-step" id="step-extract">참고문헌 리스트 추출 중...</div>
+      <div class="loader-step" id="step-search">실제 PDF 다운로드 링크 찾는 중...</div>
+    </div>
+
+    <div class="results" id="results"></div>
+  </div>
+
+<script>
+const dropzone = document.getElementById('dropzone');
+const fileinput = document.getElementById('fileinput');
+const statusEl = document.getElementById('status');
+const statusText = document.getElementById('status-text');
+const loaderSteps = document.getElementById('loader-steps');
+const stepUpload = document.getElementById('step-upload');
+const stepExtract = document.getElementById('step-extract');
+const stepSearch = document.getElementById('step-search');
+const resultsEl = document.getElementById('results');
+
+function setStep(step){
+  stepUpload.style.opacity = step>=1? '1':'0.4';
+  stepExtract.style.opacity = step>=2? '1':'0.4';
+  stepSearch.style.opacity = step>=3? '1':'0.4';
+}
+
+['dragenter','dragover'].forEach(evt=>{
+  dropzone.addEventListener(evt,e=>{ e.preventDefault(); dropzone.classList.add('dragover'); });
+});
+['dragleave','drop'].forEach(evt=>{
+  dropzone.addEventListener(evt,e=>{ e.preventDefault(); dropzone.classList.remove('dragover'); });
+});
+
+dropzone.addEventListener('click',()=>fileinput.click());
+fileinput.addEventListener('change',(e)=>handleFiles(e.target.files));
+
+dropzone.addEventListener('drop', (e)=>{ 
+  const dt = e.dataTransfer; 
+  if(dt && dt.files && dt.files.length) handleFiles(dt.files);
+});
+
+function handleFiles(files){
+  if(!files || files.length===0) return;
+  const file = files[0];
+  if(file.type !== 'application/pdf'){
+    alert('PDF 파일을 업로드 해주세요.');
+    return;
+  }
+  uploadFile(file);
+}
+
+async function uploadFile(file){
+  resultsEl.innerHTML = '';
+  statusEl.style.display='block';
+  loaderSteps.style.display='block';
+  statusText.textContent = '업로드된 PDF 분석 중';
+  setStep(1);
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try{
+    const resp = await fetch('/api/upload-pdf', { method: 'POST', body: formData });
+    setStep(2);
+    statusText.textContent = '참고문헌 리스트 추출 중';
+
+    if(!resp.ok){
+      const err = await resp.json().catch(()=>({error:'unknown'}));
+      statusText.textContent = '오류 발생';
+      loaderSteps.style.display='none';
+      alert('서버 에러: ' + (err.error || resp.status));
+      return;
+    }
+
+    // As the server does heavy work, give a moment
+    setStep(3);
+    statusText.textContent = '실제 PDF 다운로드 링크 찾는 중';
+
+    const data = await resp.json();
+    loaderSteps.style.display='none';
+    statusEl.style.display='none';
+    renderResults(data);
+  }catch(err){
+    loaderSteps.style.display='none';
+    statusText.textContent = '네트워크 오류';
+    alert('업로드 실패: ' + err.message);
+  }
+}
+
+function renderResults(items){
+  if(!items || items.length===0){
+    resultsEl.innerHTML = '<p>참고문헌을 찾지 못했습니다.</p>';
+    return;
+  }
+  resultsEl.innerHTML = '';
+  items.forEach(it=>{
+    const card = document.createElement('div'); card.className='card';
+    const meta = document.createElement('div'); meta.className='meta';
+    const title = document.createElement('div'); title.className='title'; title.textContent = it.title || '제목 없음';
+    const sub = document.createElement('div'); sub.className='sub';
+    sub.textContent = (it.authors? it.authors + ' · ' : '') + (it.year? it.year : '연도 정보 없음');
+    meta.appendChild(title); meta.appendChild(sub);
+
+    const right = document.createElement('div');
+    if(it.pdf_url){
+      const a = document.createElement('a'); a.className='download'; a.href = it.pdf_url; a.target = '_blank'; a.rel='noopener noreferrer'; a.textContent = '📥 PDF 다운로드';
+      right.appendChild(a);
+    } else {
+      const na = document.createElement('div'); na.className='not-available'; na.textContent = '다운로드 불가 (Open Access 없음)';
+      right.appendChild(na);
+    }
+    card.appendChild(meta); card.appendChild(right);
+    resultsEl.appendChild(card);
+  });
+}
+</script>
+</body>
+</html>
