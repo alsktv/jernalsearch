@@ -230,7 +230,7 @@ def upload_pdf():
             logging.exception('PDF 파싱 실패')
             return jsonify({"error": f"서버 처리 오류: PDF 파싱 실패: {str(e)}"}), 500
 
-        # Call Gemini
+        # Call Gemini to extract references
         try:
             refs = call_gemini_extract_references(text, max_items=5)
         except Exception as e:
@@ -244,43 +244,28 @@ def upload_pdf():
             logging.error('Gemini 반환 형식 오류')
             return jsonify({"error": "서버 처리 오류: Gemini 반환 형식이 올바르지 않습니다."}), 500
 
-        results = []
-        for r in refs:
-            try:
-                title = r.get('title') if r else None
-                authors = r.get('authors') if r else None
-                year = r.get('year') if r else None
-                if not title:
-                    continue
-                # Semantic Scholar lookup per title with error capture
-                try:
-                    ss = search_semanticscholar_for_title(title)
-                except Exception as e:
-                    print(f"[ERROR] Semantic Scholar 검색 중 에러 ({title}): {str(e)}")
-                    logging.exception('Semantic Scholar 검색 실패')
-                    ss = {"title": title, "authors": authors, "year": year, "pdf_url": None}
-
-                out_title = ss.get('title') or title
-                out_authors = ss.get('authors') or authors
-                out_year = ss.get('year') or year
-                pdf_url = ss.get('pdf_url') if ss.get('pdf_url') else None
-                results.append({"title": out_title, "authors": out_authors, "year": out_year, "pdf_url": pdf_url})
-            except Exception as e:
-                print(f"[ERROR] 결과 처리 중 에러 ({r}): {str(e)}")
-                logging.exception('결과 처리 실패')
-                # continue processing other refs
-                continue
-
-        # dedupe
+        # Clean and prepare references (no Semantic Scholar lookup)
+        cleaned = []
         seen = set()
-        dedup = []
-        for it in results:
-            key = (it.get('title') or '').strip().lower()
-            if key and key not in seen:
-                seen.add(key)
-                dedup.append(it)
+        for r in refs:
+            if not isinstance(r, dict):
+                continue
+            title = (r.get('title') or '').strip()
+            authors = (r.get('authors') or '').strip() if r.get('authors') else None
+            year = r.get('year') if r.get('year') else None
+            if isinstance(year, str) and year.isdigit():
+                try:
+                    year = int(year)
+                except:
+                    year = None
+            key = title.lower()
+            if not title or key in seen:
+                continue
+            seen.add(key)
+            cleaned.append({"title": title, "authors": authors, "year": year})
 
-        return jsonify(dedup)
+        # Return extracted full text plus the extracted reference metadata
+        return jsonify({"extracted_text": text, "references": cleaned})
 
     except Exception as e:
         # Catch-all for unexpected errors
