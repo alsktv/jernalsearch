@@ -200,11 +200,19 @@ def index():
     return render_template('index.html')
 
 
-@app.route('/api/upload-pdf', methods=['POST','OPTIONS'])
-def upload_pdf():
-    # Support OPTIONS preflight (CORS) and return a friendly JSON response
+@app.before_request
+def _handle_global_options():
+    # Ensure OPTIONS preflight is answered globally (helps proxies and some hosting setups)
     if request.method == 'OPTIONS':
         return jsonify({"status": "ok", "message": "CORS preflight accepted"}), 200
+
+@app.route('/api/upload-pdf', methods=['POST','OPTIONS','GET'])
+def upload_pdf():
+    # Support OPTIONS preflight (CORS) and simple GET informational response
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok", "message": "CORS preflight accepted"}), 200
+    if request.method == 'GET':
+        return jsonify({"message": "이 엔드포인트는 PDF 업로드(POST)용입니다. 파일 업로드는 multipart/form-data로 'file' 필드 사용."}), 200
     """Accepts a multipart/form-data file field named 'file', extracts references, searches for PDFs, returns list.
     Enhanced error reporting: prints and returns detailed error messages for debugging.
     """
