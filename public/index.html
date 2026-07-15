@@ -1,137 +1,141 @@
 <!doctype html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>하위 논문(참고문헌) 탐색기</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PDF 업로드로 참고문헌 추출</title>
   <style>
-    :root{--bg:#f4f7f6;--card:#ffffff;--accent:#2563eb;--muted:#9aa4a8}
-    html,body{height:100%;margin:0;font-family:Inter, "Segoe UI", Roboto, "Helvetica Neue", Arial;background:var(--bg);color:#0f172a}
-    .wrap{min-height:100%;display:flex;align-items:center;justify-content:center;padding:32px}
-    .card{background:var(--card);max-width:650px;width:100%;border-radius:12px;padding:28px;box-shadow:0 10px 30px rgba(16,24,40,0.08);transition:transform .18s ease}
-    h1{margin:0 0 6px;font-size:20px}
-    .subtitle{margin:0 0 18px;color:var(--muted);font-size:13px}
-    form{display:flex;flex-direction:column;gap:12px}
-    label{font-size:13px;color:#1f2937}
-    input[type="text"]{padding:12px 14px;border:1px solid #e6eef0;border-radius:8px;font-size:15px;outline:none;transition:border-color .15s,box-shadow .15s}
-    input[type="text"]:focus{border-color:var(--accent);box-shadow:0 0 0 4px rgba(37,99,235,0.08)}
-    button{margin-top:6px;padding:12px 16px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-weight:600;font-size:15px;cursor:pointer;transition:background .18s,transform .08s}
-    button:disabled{opacity:0.7;cursor:wait}
-    button:hover:not(:disabled){background:#1e40af}
-
-    /* Loader */
-    .loader{display:flex;align-items:center;gap:12px;margin-top:12px}
-    .spinner{width:20px;height:20px;border-radius:50%;border:3px solid rgba(0,0,0,0.08);border-top-color:var(--accent);animation:spin 1s linear infinite}
-    @keyframes spin{to{transform:rotate(360deg)}}
-
-    .results{margin-top:18px;display:flex;flex-direction:column;gap:12px}
-    .paper{padding:14px;border-radius:10px;background:#fbfeff;border:1px solid #eef6f7}
-    .paper-title{font-weight:700;margin:0 0 6px}
-    .paper-meta{color:var(--muted);font-size:13px}
-
-    .fade-enter{opacity:0;transform:translateY(6px)}
-    .fade-enter.fade-enter-active{opacity:1;transform:none;transition:all .22s ease}
-
-    .error{margin-top:12px;padding:12px;border-radius:10px;background:#fff5f5;color:#7f1d1d;border:1px solid #fee2e2}
-
-    @media (max-width:420px){.card{padding:18px}}
+    body{font-family:Inter, Arial, sans-serif;background:#f3f6fb;margin:0;color:#0f172a}
+    .wrap{max-width:920px;margin:28px auto;padding:20px}
+    .dropzone{border:3px dashed #4A90E2;border-radius:12px;padding:40px;background:linear-gradient(180deg,#ffffff, #f7fbff);text-align:center;cursor:pointer}
+    .dropzone.dragover{box-shadow:0 8px 30px rgba(74,144,226,0.12);transform:translateY(-2px)}
+    .dropzone .icon{font-size:48px;margin-bottom:8px;color:#4A90E2}
+    .dropzone p{margin:6px 0;color:#0f172a;font-weight:700}
+    .hint{color:#6b7280;font-size:14px}
+    .status{margin-top:18px;font-weight:600}
+    .step{margin-top:10px;color:#374151}
+    .results{margin-top:22px}
+    .card{background:#fff;border-radius:10px;padding:14px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 8px 24px rgba(15,23,42,0.04);margin-bottom:12px}
+    .meta{max-width:75%}
+    .title{font-weight:700;color:#0f172a}
+    .sub{color:#475569;margin-top:6px}
+    .btn{background:#1e40af;color:#fff;padding:10px 12px;border-radius:8px;text-decoration:none}
+    .btn.disabled{background:#cbd5e1;color:#fff;pointer-events:none;opacity:0.8}
+    .no-results{color:#6b7280;padding:12px}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <div class="card" role="main">
-      <h1>🔍 하위 논문(참고문헌) 탐색기</h1>
-      <p class="subtitle">수동으로 찾은 논문의 Reference 리스트를 시각화합니다.</p>
-
-      <form id="searchForm">
-        <label for="title">원본 논문 제목 (Seed Paper Title)</label>
-        <input id="title" name="title" type="text" placeholder="예: Attention Is All You Need" autocomplete="off" />
-        <button id="searchBtn" type="submit">하위 논문 리스트 찾기</button>
-      </form>
-
-      <div id="loading" style="display:none" aria-live="polite">
-        <div class="loader">
-          <div class="spinner" aria-hidden="true"></div>
-          <div class="loading-text">Gemini 에이전트가 인터넷을 통해 논문을 탐색 중입니다...</div>
-        </div>
-      </div>
-
-      <div id="messageArea"></div>
-      <div id="results" class="results" aria-live="polite"></div>
+    <h2>PDF 업로드로 참고문헌 추출 및 Open Access PDF 탐색</h2>
+    <div id="dropzone" class="dropzone" role="button" tabindex="0">
+      <div class="icon">📄</div>
+      <p>논문 PDF 파일을 마우스로 여기에 끌어놓으세요</p>
+      <div class="hint">(PDF 뒤쪽의 References 섹션을 분석해 하위 논문 및 Open Access PDF 링크를 찾습니다)</div>
+      <input id="fileinput" type="file" accept="application/pdf" style="display:none">
     </div>
+
+    <div id="status" style="display:none">
+      <div class="status">진행 상황: <span id="status-text"></span></div>
+      <div class="step" id="step-upload">PDF 구조 파싱 중...</div>
+      <div class="step" id="step-analyze">Gemini 참고문헌 분석 중...</div>
+      <div class="step" id="step-match">다운로드 링크 매칭 중...</div>
+    </div>
+
+    <div class="results" id="results"></div>
   </div>
 
-  <script>
-    const form = document.getElementById('searchForm');
-    const titleInput = document.getElementById('title');
-    const searchBtn = document.getElementById('searchBtn');
-    const loadingEl = document.getElementById('loading');
-    const resultsEl = document.getElementById('results');
-    const messageArea = document.getElementById('messageArea');
+<script>
+const dropzone = document.getElementById('dropzone');
+const fileinput = document.getElementById('fileinput');
+const status = document.getElementById('status');
+const statusText = document.getElementById('status-text');
+const stepUpload = document.getElementById('step-upload');
+const stepAnalyze = document.getElementById('step-analyze');
+const stepMatch = document.getElementById('step-match');
+const resultsEl = document.getElementById('results');
 
-    function showLoading(show){
-      loadingEl.style.display = show ? 'block' : 'none';
-      searchBtn.disabled = show;
+function setPhase(phase){
+  stepUpload.style.opacity = phase>=1? '1':'0.4';
+  stepAnalyze.style.opacity = phase>=2? '1':'0.4';
+  stepMatch.style.opacity = phase>=3? '1':'0.4';
+}
+
+['dragenter','dragover'].forEach(e=>dropzone.addEventListener(e, ev=>{ev.preventDefault(); dropzone.classList.add('dragover');}));
+['dragleave','drop'].forEach(e=>dropzone.addEventListener(e, ev=>{ev.preventDefault(); dropzone.classList.remove('dragover');}));
+
+dropzone.addEventListener('click', ()=> fileinput.click());
+fileinput.addEventListener('change', e=> handleFiles(e.target.files));
+
+dropzone.addEventListener('drop', ev=>{ ev.preventDefault(); const dt = ev.dataTransfer; if(dt && dt.files && dt.files.length) handleFiles(dt.files); });
+
+function handleFiles(files){
+  if(!files || files.length===0) return;
+  const f = files[0];
+  if(f.type !== 'application/pdf') { alert('PDF 파일만 업로드해 주세요.'); return; }
+  uploadFile(f);
+}
+
+async function uploadFile(file){
+  resultsEl.innerHTML = '';
+  status.style.display = 'block';
+  statusText.textContent = '파일 업로드 시작';
+  setPhase(1);
+
+  const fd = new FormData(); fd.append('file', file);
+  try{
+    statusText.textContent = 'PDF 구조 파싱 중...';
+    setPhase(1);
+    const resp = await fetch('/api/upload-pdf', { method: 'POST', body: fd });
+
+    statusText.textContent = 'Gemini 참고문헌 분석 중...';
+    setPhase(2);
+
+    if(!resp.ok){
+      const err = await resp.json().catch(()=>({error:'unknown'}));
+      statusText.textContent = '오류 발생';
+      resultsEl.innerHTML = `<div class="no-results">서버 오류: ${err.error || resp.status}</div>`;
+      return;
     }
 
-    function showError(text){
-      messageArea.innerHTML = `<div class="error">${text}</div>`;
+    statusText.textContent = '다운로드 링크 매칭 중...';
+    setPhase(3);
+
+    const data = await resp.json();
+    status.style.display = 'none';
+    renderResults(data);
+  }catch(err){
+    statusText.textContent = '네트워크 오류';
+    resultsEl.innerHTML = `<div class="no-results">업로드 실패: ${err.message}</div>`;
+  }
+}
+
+function renderResults(items){
+  if(!items || items.length===0){
+    resultsEl.innerHTML = '<div class="no-results">참고문헌을 찾지 못했습니다.</div>';
+    return;
+  }
+  resultsEl.innerHTML = '';
+  items.forEach(it=>{
+    const card = document.createElement('div'); card.className='card';
+    const meta = document.createElement('div'); meta.className='meta';
+    const title = document.createElement('div'); title.className='title'; title.textContent = it.title || '제목 없음';
+    const sub = document.createElement('div'); sub.className='sub'; sub.textContent = (it.authors? it.authors + ' · ' : '') + (it.year? it.year : '연도 정보 없음');
+    meta.appendChild(title); meta.appendChild(sub);
+
+    const right = document.createElement('div');
+    if(it.pdf_url){
+      const a = document.createElement('a'); a.className='btn'; a.href = it.pdf_url; a.target = '_blank'; a.rel='noopener noreferrer'; a.textContent = '📥 PDF 다운로드';
+      right.appendChild(a);
+    } else {
+      const btn = document.createElement('a'); btn.className='btn disabled'; btn.textContent = '📥 PDF 다운로드'; btn.setAttribute('aria-disabled','true');
+      const na = document.createElement('div'); na.className='sub'; na.style.marginTop='6px'; na.style.color='#9ca3af'; na.textContent = '다운로드 링크 없음 (Open Access 미지원)';
+      right.appendChild(btn); right.appendChild(na);
     }
 
-    function clearMessages(){
-      messageArea.innerHTML = '';
-      resultsEl.innerHTML = '';
-    }
-
-    function renderReferences(list){
-      resultsEl.innerHTML = '';
-      list.forEach((p, idx) => {
-        const div = document.createElement('div');
-        div.className = 'paper fade-enter';
-        div.innerHTML = `<div class="paper-title">${p.title}</div><div class="paper-meta">${p.authors} | ${p.year}</div>`;
-        resultsEl.appendChild(div);
-        // trigger enter animation
-        requestAnimationFrame(() => div.classList.add('fade-enter-active'));
-      });
-    }
-
-    form.addEventListener('submit', async (ev) => {
-      ev.preventDefault();
-      clearMessages();
-      const title = titleInput.value.trim();
-      if(!title){
-        showError('검색할 원본 논문 제목을 입력해 주세요.');
-        return;
-      }
-
-      showLoading(true);
-
-      try{
-        const resp = await fetch('/api/find-references', {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({title})
-        });
-
-        const data = await resp.json();
-        showLoading(false);
-
-        if(!resp.ok){
-          showError(data.error || '하위 논문을 찾지 못했습니다.');
-          return;
-        }
-
-        if(data.references && data.references.length){
-          renderReferences(data.references);
-        } else {
-          showError('하위 논문을 찾지 못했습니다.');
-        }
-      } catch (err){
-        showLoading(false);
-        showError('네트워크 오류가 발생했습니다. 다시 시도해 주세요.');
-        console.error(err);
-      }
-    });
-  </script>
+    card.appendChild(meta); card.appendChild(right);
+    resultsEl.appendChild(card);
+  });
+}
+</script>
 </body>
 </html>
