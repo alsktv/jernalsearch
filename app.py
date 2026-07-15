@@ -230,5 +230,6 @@ def upload_pdf():
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=True)
+    # Default to port 5002 as required
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5002)), debug=True)
 
