@@ -3,40 +3,42 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>논문 참고문헌 추출기</title>
+  <title>PDF 업로드로 참고문헌 추출</title>
   <style>
-    body { font-family: Arial, Helvetica, sans-serif; background:#f7f8fb; color:#111; margin:0; padding:20px }
-    .container { max-width:900px; margin:0 auto }
-    .dropzone { border:2px dashed #cbd5e1; border-radius:8px; padding:30px; text-align:center; background:#fff; cursor:pointer }
-    .dropzone.dragover { border-color:#3b82f6; box-shadow:0 4px 20px rgba(59,130,246,0.08) }
-    .hint { color:#64748b; margin-top:6px }
-    .status { margin-top:18px; font-weight:600 }
-    .dots::after { content: ''; display:inline-block; width:1em; animation: dots 1s steps(5, end) infinite }
-    @keyframes dots { 0% { content: "" } 20% { content: "." } 40% { content: ".." } 60% { content: "..." } 100% { content: "" } }
-    .results { margin-top:20px }
-    .card { background:#fff; border-radius:8px; padding:16px; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 6px 18px rgba(15,23,42,0.04) }
-    .meta { max-width:76% }
-    .title { font-size:15px; font-weight:700; color:#0f172a }
-    .sub { font-size:13px; color:#475569; margin-top:6px }
-    .download { background:#2563eb; color:#fff; padding:10px 14px; border-radius:6px; text-decoration:none; display:inline-block }
-    .not-available { color:#94a3b8; font-weight:600 }
-    .loader-step { margin-top:8px; color:#334155 }
+    body{font-family:Inter, Arial, sans-serif;background:#f3f6fb;margin:0;color:#0f172a}
+    .wrap{max-width:920px;margin:28px auto;padding:20px}
+    .dropzone{border:3px dashed #4A90E2;border-radius:12px;padding:40px;background:linear-gradient(180deg,#ffffff, #f7fbff);text-align:center;cursor:pointer}
+    .dropzone.dragover{box-shadow:0 8px 30px rgba(74,144,226,0.12);transform:translateY(-2px)}
+    .dropzone .icon{font-size:48px;margin-bottom:8px;color:#4A90E2}
+    .dropzone p{margin:6px 0;color:#0f172a;font-weight:600}
+    .hint{color:#6b7280;font-size:14px}
+    .status{margin-top:18px;font-weight:600}
+    .step{margin-top:10px;color:#374151}
+    .results{margin-top:22px}
+    .card{background:#fff;border-radius:10px;padding:14px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 8px 24px rgba(15,23,42,0.04);margin-bottom:12px}
+    .meta{max-width:75%}
+    .title{font-weight:700;color:#0f172a}
+    .sub{color:#475569;margin-top:6px}
+    .btn{background:#1e40af;color:#fff;padding:10px 12px;border-radius:8px;text-decoration:none}
+    .btn.disabled{background:#cbd5e1;color:#fff;pointer-events:none;opacity:0.8}
+    .no-results{color:#6b7280;padding:12px}
   </style>
 </head>
 <body>
-  <div class="container">
-    <h2>논문 참고문헌 추출 및 하위 논문 PDF 검색</h2>
-    <div id="dropzone" class="dropzone">
-      <p style="margin:0">여기에 논문 PDF 파일을 드래그하거나 클릭하여 업로드하세요</p>
-      <p class="hint">(References 섹션을 분석하여 하위 논문 제목을 추출하고 Open Access PDF 링크를 검색합니다)</p>
+  <div class="wrap">
+    <h2>PDF 업로드로 참고문헌 추출 및 Open Access PDF 탐색</h2>
+    <div id="dropzone" class="dropzone" role="button" tabindex="0">
+      <div class="icon">📄</div>
+      <p>PDF 파일을 이리로 끌어다 놓거나 클릭하여 업로드하세요</p>
+      <div class="hint">(시스템은 PDF 뒤쪽의 References 섹션을 분석하여 하위 논문을 찾고 Open Access PDF 링크를 매칭합니다)</div>
       <input id="fileinput" type="file" accept="application/pdf" style="display:none">
     </div>
 
-    <div id="status" class="status" style="display:none">상태: <span id="status-text"></span><span class="dots"></span></div>
-    <div id="loader-steps" style="display:none">
-      <div class="loader-step" id="step-upload">업로드된 PDF 분석 중...</div>
-      <div class="loader-step" id="step-extract">참고문헌 리스트 추출 중...</div>
-      <div class="loader-step" id="step-search">실제 PDF 다운로드 링크 찾는 중...</div>
+    <div id="status" style="display:none">
+      <div class="status">진행 상황: <span id="status-text"></span></div>
+      <div class="step" id="step-upload">파일을 업로드하는 중...</div>
+      <div class="step" id="step-analyze">PDF 참고문헌 분석 중...</div>
+      <div class="step" id="step-match">실제 PDF 다운로드 링크를 매칭하는 중...</div>
     </div>
 
     <div class="results" id="results"></div>
@@ -45,86 +47,74 @@
 <script>
 const dropzone = document.getElementById('dropzone');
 const fileinput = document.getElementById('fileinput');
-const statusEl = document.getElementById('status');
+const status = document.getElementById('status');
 const statusText = document.getElementById('status-text');
-const loaderSteps = document.getElementById('loader-steps');
 const stepUpload = document.getElementById('step-upload');
-const stepExtract = document.getElementById('step-extract');
-const stepSearch = document.getElementById('step-search');
+const stepAnalyze = document.getElementById('step-analyze');
+const stepMatch = document.getElementById('step-match');
 const resultsEl = document.getElementById('results');
 
-function setStep(step){
-  stepUpload.style.opacity = step>=1? '1':'0.4';
-  stepExtract.style.opacity = step>=2? '1':'0.4';
-  stepSearch.style.opacity = step>=3? '1':'0.4';
+function setPhase(phase){
+  stepUpload.style.opacity = phase>=1? '1':'0.4';
+  stepAnalyze.style.opacity = phase>=2? '1':'0.4';
+  stepMatch.style.opacity = phase>=3? '1':'0.4';
 }
 
-['dragenter','dragover'].forEach(evt=>{
-  dropzone.addEventListener(evt,e=>{ e.preventDefault(); dropzone.classList.add('dragover'); });
-});
-['dragleave','drop'].forEach(evt=>{
-  dropzone.addEventListener(evt,e=>{ e.preventDefault(); dropzone.classList.remove('dragover'); });
-});
+['dragenter','dragover'].forEach(e=>dropzone.addEventListener(e, ev=>{ev.preventDefault(); dropzone.classList.add('dragover');}));
+['dragleave','drop'].forEach(e=>dropzone.addEventListener(e, ev=>{ev.preventDefault(); dropzone.classList.remove('dragover');}));
 
-dropzone.addEventListener('click',()=>fileinput.click());
-fileinput.addEventListener('change',(e)=>handleFiles(e.target.files));
+dropzone.addEventListener('click', ()=> fileinput.click());
+fileinput.addEventListener('change', e=> handleFiles(e.target.files));
 
-dropzone.addEventListener('drop', (e)=>{ 
-  const dt = e.dataTransfer; 
-  if(dt && dt.files && dt.files.length) handleFiles(dt.files);
-});
+dropzone.addEventListener('drop', ev=>{ ev.preventDefault(); const dt = ev.dataTransfer; if(dt && dt.files && dt.files.length) handleFiles(dt.files); });
 
 function handleFiles(files){
   if(!files || files.length===0) return;
-  const file = files[0];
-  if(file.type !== 'application/pdf'){
-    alert('PDF 파일을 업로드 해주세요.');
-    return;
-  }
-  uploadFile(file);
+  const f = files[0];
+  if(f.type !== 'application/pdf') { alert('PDF 파일만 업로드해 주세요.'); return; }
+  uploadFile(f);
 }
 
 async function uploadFile(file){
   resultsEl.innerHTML = '';
-  statusEl.style.display='block';
-  loaderSteps.style.display='block';
-  statusText.textContent = '업로드된 PDF 분석 중';
-  setStep(1);
+  status.style.display = 'block';
+  statusText.textContent = '파일 업로드 시작';
+  setPhase(1);
 
-  const formData = new FormData();
-  formData.append('file', file);
-
+  const fd = new FormData(); fd.append('file', file);
   try{
-    const resp = await fetch('/api/upload-pdf', { method: 'POST', body: formData });
-    setStep(2);
-    statusText.textContent = '참고문헌 리스트 추출 중';
+    // Phase 1: Uploading
+    statusText.textContent = '파일을 업로드하는 중...';
+    setPhase(1);
+    const resp = await fetch('/api/upload-pdf', { method: 'POST', body: fd });
+
+    // Phase 2: Analyzing
+    statusText.textContent = 'PDF 참고문헌 분석 중...';
+    setPhase(2);
 
     if(!resp.ok){
       const err = await resp.json().catch(()=>({error:'unknown'}));
       statusText.textContent = '오류 발생';
-      loaderSteps.style.display='none';
-      alert('서버 에러: ' + (err.error || resp.status));
+      resultsEl.innerHTML = `<div class="no-results">서버 오류: ${err.error || resp.status}</div>`;
       return;
     }
 
-    // As the server does heavy work, give a moment
-    setStep(3);
-    statusText.textContent = '실제 PDF 다운로드 링크 찾는 중';
+    // Phase 3: Matching
+    statusText.textContent = '실제 PDF 다운로드 링크를 매칭하는 중...';
+    setPhase(3);
 
     const data = await resp.json();
-    loaderSteps.style.display='none';
-    statusEl.style.display='none';
+    status.style.display = 'none';
     renderResults(data);
   }catch(err){
-    loaderSteps.style.display='none';
     statusText.textContent = '네트워크 오류';
-    alert('업로드 실패: ' + err.message);
+    resultsEl.innerHTML = `<div class="no-results">업로드 실패: ${err.message}</div>`;
   }
 }
 
 function renderResults(items){
   if(!items || items.length===0){
-    resultsEl.innerHTML = '<p>참고문헌을 찾지 못했습니다.</p>';
+    resultsEl.innerHTML = '<div class="no-results">참고문헌을 찾지 못했습니다.</div>';
     return;
   }
   resultsEl.innerHTML = '';
@@ -132,18 +122,19 @@ function renderResults(items){
     const card = document.createElement('div'); card.className='card';
     const meta = document.createElement('div'); meta.className='meta';
     const title = document.createElement('div'); title.className='title'; title.textContent = it.title || '제목 없음';
-    const sub = document.createElement('div'); sub.className='sub';
-    sub.textContent = (it.authors? it.authors + ' · ' : '') + (it.year? it.year : '연도 정보 없음');
+    const sub = document.createElement('div'); sub.className='sub'; sub.textContent = (it.authors? it.authors + ' · ' : '') + (it.year? it.year : '연도 정보 없음');
     meta.appendChild(title); meta.appendChild(sub);
 
     const right = document.createElement('div');
     if(it.pdf_url){
-      const a = document.createElement('a'); a.className='download'; a.href = it.pdf_url; a.target = '_blank'; a.rel='noopener noreferrer'; a.textContent = '📥 PDF 다운로드';
+      const a = document.createElement('a'); a.className='btn'; a.href = it.pdf_url; a.target = '_blank'; a.rel='noopener noreferrer'; a.textContent = '📥 PDF 다운로드';
       right.appendChild(a);
     } else {
-      const na = document.createElement('div'); na.className='not-available'; na.textContent = '다운로드 불가 (Open Access 없음)';
-      right.appendChild(na);
+      const btn = document.createElement('a'); btn.className='btn disabled'; btn.textContent = '📥 PDF 다운로드'; btn.setAttribute('aria-disabled','true');
+      const na = document.createElement('div'); na.className='sub'; na.style.marginTop='6px'; na.style.color='#9ca3af'; na.textContent = '다운로드 링크 없음 (Open Access 미지원)';
+      right.appendChild(btn); right.appendChild(na);
     }
+
     card.appendChild(meta); card.appendChild(right);
     resultsEl.appendChild(card);
   });

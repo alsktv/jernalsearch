@@ -16,22 +16,25 @@ logging.basicConfig(level=logging.INFO)
 app = Flask(__name__, template_folder='templates')
 CORS(app)
 
-# Configure Gemini API key from environment
-GENAI_API_KEY = os.environ.get('GOOGLE_API_KEY') or os.environ.get('GENAI_API_KEY')
-if GENAI_API_KEY:
-    genai.configure(api_key=GENAI_API_KEY)
+# Use GEMINI_API_KEY environment variable per requirements
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+if GEMINI_API_KEY:
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+    except Exception:
+        logging.exception('Failed to configure Gemini client')
 else:
-    logging.warning('Google Generative AI API key not found in environment (GOOGLE_API_KEY or GENAI_API_KEY)')
+    logging.warning('GEMINI_API_KEY not set; Gemini calls will be skipped or use fallback heuristic')
 
 SEMANTIC_SCHOLAR_BASE = 'https://api.semanticscholar.org/graph/v1'
 
 
-def extract_text_from_pdf_bytes(pdf_bytes: bytes, last_n_pages: int = 8) -> str:
+def extract_text_from_pdf_bytes(pdf_bytes: bytes, last_n_pages: int = 5) -> str:
+    """Extract text from the last_n_pages of the PDF; if empty, fall back to whole document."""
     reader = PdfReader(io.BytesIO(pdf_bytes))
     num_pages = len(reader.pages)
     start = max(0, num_pages - last_n_pages)
     text_parts: List[str] = []
-    # Try last_n_pages first
     for i in range(start, num_pages):
         try:
             page = reader.pages[i]
@@ -42,7 +45,7 @@ def extract_text_from_pdf_bytes(pdf_bytes: bytes, last_n_pages: int = 8) -> str:
     combined = "\n".join(text_parts).strip()
     if combined:
         return combined
-    # Fallback: read whole document
+    # fallback to entire document
     text_parts = []
     for i in range(num_pages):
         try:
@@ -54,106 +57,114 @@ def extract_text_from_pdf_bytes(pdf_bytes: bytes, last_n_pages: int = 8) -> str:
     return "\n".join(text_parts)
 
 
-def call_gemini_extract_references(text: str) -> List[Dict[str, Any]]:
-    # Prompt instructing Gemini to output strict JSON
-    prompt = (
-        "Extract the References section from the provided text. Return a JSON array only (no extra text)."
-        " Each item should be an object with keys: title, authors (single string), year (number if available or null)."
-        " If a reference lacks a year or authors, use null for that field. Parse titles accurately and avoid adding items that are not bibliographic references."
-        "\n\nText:\n" + text
+def call_gemini_extract_references(text: str, max_items: int = 5) -> List[Dict[str, Any]]:
+    """Call Gemini to extract up to max_items references as JSON array of {title, authors, year}."""
+    system_instr = (
+        "You are a precise extractor. Given a block of text that contains the References section of an academic paper,"
+        " extract up to " + str(max_items) + " cited works. For each cited work return an object with exactly these keys:"
+        " title (string), authors (string, comma-separated), year (integer or null)."
+        " Output MUST be a pure JSON array (no markdown, no backticks, no extra commentary)."
     )
+    user_msg = "\n\nText:\n" + text
 
-    if not GENAI_API_KEY:
-        # As a fallback when Gemini is not configured, attempt a simple heuristic: lines with years
-        logging.warning('Gemini not configured; using simple fallback heuristic to extract candidate lines')
+    if not GEMINI_API_KEY:
+        logging.warning('GEMINI not configured; falling back to heuristic extraction')
+        # simple heuristic: collect lines that look like citations (contain a 4-digit year)
         lines = [l.strip() for l in text.splitlines() if l.strip()]
         candidates = []
         for l in lines:
-            # naive: line containing a four-digit year
-            if any(str(y) in l for y in range(1900, 2031)):
-                candidates.append({"title": l[:200], "authors": None, "year": None})
-        return candidates[:50]
+            # naive detection of year
+            for y in range(1900, 2031):
+                if str(y) in l:
+                    candidates.append({"title": l[:240], "authors": None, "year": y})
+                    break
+            if len(candidates) >= max_items:
+                break
+        return candidates
 
     try:
-        response = genai.chat.create(model="gemini-1.5-flash", messages=[{"role": "user", "content": prompt}], max_output_tokens=1024)
-        # The exact response shape may vary; attempt to find JSON
+        # messages: system then user
+        messages = [
+            {"role": "system", "content": system_instr},
+            {"role": "user", "content": user_msg}
+        ]
+        resp = genai.chat.create(model="gemini-1.5-flash", messages=messages, max_output_tokens=800)
+        # Extract textual content from response robustly
         content = ''
-        if isinstance(response, dict):
-            # new API shapes might put text in response['candidates'][0]['content'] or response['output'][0]
-            if 'candidates' in response and response['candidates']:
-                content = response['candidates'][0].get('content', '')
-            elif 'output' in response:
-                # try to join outputs
-                if isinstance(response['output'], list):
-                    content = ' '.join([str(o) for o in response['output']])
-                else:
-                    content = str(response['output'])
-        else:
-            # some SDKs return object-like responses
-            try:
-                content = response.candidates[0].content
-            except Exception:
-                content = str(response)
+        try:
+            # common SDK shapes
+            if isinstance(resp, dict):
+                if 'candidates' in resp and resp['candidates']:
+                    candidate = resp['candidates'][0]
+                    if isinstance(candidate, dict):
+                        content = candidate.get('content') or candidate.get('message') or ''
+                elif 'output' in resp:
+                    out = resp['output']
+                    if isinstance(out, list):
+                        content = ' '.join([str(o) for o in out])
+                    else:
+                        content = str(out)
+            else:
+                # object-like
+                try:
+                    content = resp.candidates[0].content
+                except Exception:
+                    content = str(resp)
+        except Exception:
+            content = str(resp)
 
-        # Attempt to extract JSON substring
-        start_idx = content.find('[')
-        end_idx = content.rfind(']')
-        if start_idx != -1 and end_idx != -1:
-            json_str = content[start_idx:end_idx+1]
-        else:
-            json_str = content
-
-        parsed = json.loads(json_str)
-        # Normalize items
-        results = []
-        for item in parsed:
-            title = item.get('title') if isinstance(item, dict) else None
-            authors = item.get('authors') if isinstance(item, dict) else None
-            year = item.get('year') if isinstance(item, dict) else None
+        # find JSON array in content
+        start = content.find('[')
+        end = content.rfind(']')
+        json_blob = content[start:end+1] if start != -1 and end != -1 and end > start else content
+        parsed = json.loads(json_blob)
+        results: List[Dict[str, Any]] = []
+        for item in parsed[:max_items]:
+            if not isinstance(item, dict):
+                continue
+            title = item.get('title')
+            authors = item.get('authors')
+            year = item.get('year')
             try:
                 if isinstance(year, str) and year.isdigit():
                     year = int(year)
+                elif isinstance(year, (int, float)):
+                    year = int(year)
+                else:
+                    year = None
             except Exception:
                 year = None
-            results.append({
-                'title': title,
-                'authors': authors,
-                'year': year
-            })
+            results.append({"title": title, "authors": authors, "year": year})
         return results
-    except Exception as e:
-        logging.exception('Error calling Gemini: %s', e)
+    except Exception:
+        logging.exception('Gemini extraction failed; returning empty list')
         return []
 
 
 def search_semanticscholar_for_title(title: str) -> Dict[str, Any]:
+    """Search Semantic Scholar and return one best match with open pdf if available."""
     if not title:
         return {"title": None, "authors": None, "year": None, "pdf_url": None}
     q = urllib.parse.quote_plus(title)
     url = f"{SEMANTIC_SCHOLAR_BASE}/paper/search?query={q}&fields=title,authors,year,openAccessPdf&limit=5"
     try:
-        resp = requests.get(url, headers={"User-Agent": "jernalsearch/1.0"}, timeout=15)
-        if resp.status_code != 200:
-            logging.warning('Semantic Scholar non-200: %s for title %s', resp.status_code, title)
+        r = requests.get(url, headers={"User-Agent": "jernalsearch/1.0"}, timeout=12)
+        if r.status_code != 200:
+            logging.warning('Semantic Scholar returned %s for query %s', r.status_code, title)
             return {"title": title, "authors": None, "year": None, "pdf_url": None}
-        data = resp.json()
-        # data is expected to have 'data' list
-        items = data.get('data') or data.get('results') or []
+        data = r.json()
+        items = data.get('data') or []
         for it in items:
-            # pick first with an openAccessPdf
-            open_pdf = it.get('openAccessPdf')
             pdf_url = None
-            if open_pdf:
-                # sometimes openAccessPdf is an object with 'url'
-                if isinstance(open_pdf, dict):
-                    pdf_url = open_pdf.get('url')
-                elif isinstance(open_pdf, str):
-                    pdf_url = open_pdf
-            # Also try to find direct pdf link within other fields
+            open_pdf = it.get('openAccessPdf')
+            if isinstance(open_pdf, dict):
+                pdf_url = open_pdf.get('url')
+            elif isinstance(open_pdf, str):
+                pdf_url = open_pdf
+            # fallback: check other fields
             if not pdf_url:
-                # try searching for '.pdf' in external_urls or url fields
-                for candidate_field in ['url', 'externalUrls', 'external_urls']:
-                    val = it.get(candidate_field)
+                for f in ('url', 'externalUrls', 'external_urls'):
+                    val = it.get(f)
                     if isinstance(val, str) and val.lower().endswith('.pdf'):
                         pdf_url = val
                         break
@@ -164,16 +175,13 @@ def search_semanticscholar_for_title(title: str) -> Dict[str, Any]:
                                 break
                         if pdf_url:
                             break
-
             authors_list = it.get('authors') or []
             authors = ', '.join([a.get('name') for a in authors_list if a.get('name')]) if authors_list else None
             year = it.get('year') or None
             return {"title": it.get('title') or title, "authors": authors, "year": year, "pdf_url": pdf_url}
-        # nothing matched
-        return {"title": title, "authors": None, "year": None, "pdf_url": None}
-    except Exception as e:
-        logging.exception('Error searching Semantic Scholar for title: %s', title)
-        return {"title": title, "authors": None, "year": None, "pdf_url": None}
+    except Exception:
+        logging.exception('Error querying Semantic Scholar for title: %s', title)
+    return {"title": title, "authors": None, "year": None, "pdf_url": None}
 
 
 @app.route('/')
@@ -183,55 +191,44 @@ def index():
 
 @app.route('/api/upload-pdf', methods=['POST'])
 def upload_pdf():
-    file = request.files.get('file')
-    if not file:
+    """Accepts a multipart/form-data file field named 'file', extracts references, searches for PDFs, returns list."""
+    uploaded = request.files.get('file')
+    if not uploaded:
         return jsonify({"error": "no file uploaded"}), 400
     try:
-        pdf_bytes = file.read()
-        # Extract text from last few pages where References usually reside
-        text = extract_text_from_pdf_bytes(pdf_bytes, last_n_pages=10)
-        logging.info('Extracted text length: %d', len(text) if text else 0)
+        pdf_bytes = uploaded.read()
+        text = extract_text_from_pdf_bytes(pdf_bytes, last_n_pages=5)
+        logging.info('Extracted text length=%d', len(text) if text else 0)
 
-        # Call Gemini to extract references
-        references = call_gemini_extract_references(text)
-
-        # For each reference, search Semantic Scholar for open access pdf
-        results = []
-        for ref in references:
-            title = ref.get('title') if ref else None
-            authors = ref.get('authors') if ref else None
-            year = ref.get('year') if ref else None
+        refs = call_gemini_extract_references(text, max_items=5)
+        results: List[Dict[str, Any]] = []
+        for r in refs:
+            title = r.get('title') if r else None
+            authors = r.get('authors') if r else None
+            year = r.get('year') if r else None
             if not title:
                 continue
             ss = search_semanticscholar_for_title(title)
-            # prefer richer metadata from Semantic Scholar if available
             out_title = ss.get('title') or title
             out_authors = ss.get('authors') or authors
             out_year = ss.get('year') or year
-            out_pdf = ss.get('pdf_url') if ss.get('pdf_url') else None
-            results.append({
-                'title': out_title,
-                'authors': out_authors,
-                'year': out_year,
-                'pdf_url': out_pdf
-            })
+            pdf_url = ss.get('pdf_url') if ss.get('pdf_url') else None
+            results.append({"title": out_title, "authors": out_authors, "year": out_year, "pdf_url": pdf_url})
 
-        # Deduplicate by title
+        # dedupe by normalized title
         seen = set()
-        deduped = []
-        for r in results:
-            key = (r.get('title') or '').strip()
-            if key and key.lower() not in seen:
-                seen.add(key.lower())
-                deduped.append(r)
-
-        return jsonify(deduped)
-    except Exception as e:
-        logging.exception('Error processing uploaded PDF: %s', e)
+        dedup = []
+        for it in results:
+            key = (it.get('title') or '').strip().lower()
+            if key and key not in seen:
+                seen.add(key)
+                dedup.append(it)
+        return jsonify(dedup)
+    except Exception:
+        logging.exception('Failed to process uploaded PDF')
         return jsonify({"error": "internal server error"}), 500
 
 
 if __name__ == '__main__':
-    # Use port 5000 by default
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=True)
 
