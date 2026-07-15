@@ -258,13 +258,36 @@ def index():
     return render_template('index.html')
 
 
-@app.route('/api/upload-pdf', methods=['POST'])
+@app.before_request
+def handle_preflight():
+    """Handle CORS preflight requests explicitly"""
+    if request.method == 'OPTIONS':
+        print(f"[DEBUG] OPTIONS preflight received: path={request.path}, origin={request.headers.get('Origin')}")
+        response = jsonify({"status": "preflight ok"})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS, GET')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        return response, 200
+
+
+@app.route('/api/upload-pdf', methods=['POST', 'OPTIONS'])
 def upload_pdf():
     """Accepts a multipart/form-data file field named 'file', extracts references.
     Enhanced error reporting: returns file name, detailed errors, and debug info.
     """
+    # Handle OPTIONS preflight
+    if request.method == 'OPTIONS':
+        print(f"[DEBUG] OPTIONS request to /api/upload-pdf")
+        return jsonify({"status": "ok"}), 200
+    
     try:
-        print(f"[DEBUG] Incoming request: method={request.method}, path={request.path}, content_type={request.content_type}")
+        print(f"[DEBUG] ===== PDF UPLOAD REQUEST START =====")
+        print(f"[DEBUG] Method: {request.method}")
+        print(f"[DEBUG] Path: {request.path}")
+        print(f"[DEBUG] Content-Type: {request.content_type}")
+        print(f"[DEBUG] Content-Length: {request.content_length}")
+        print(f"[DEBUG] Form data keys: {list(request.form.keys())}")
+        print(f"[DEBUG] File keys: {list(request.files.keys())}")
 
         uploaded = request.files.get('file')
         print(f"[DEBUG] request.files keys: {list(request.files.keys())}")
