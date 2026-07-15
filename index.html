@@ -36,6 +36,7 @@
 
     <div id="status" style="display:none">
       <div class="status">진행 상황: <span id="status-text"></span></div>
+      <div id="error-area" style="display:none;color:#b91c1c;margin-top:8px"></div>
       <div class="step" id="step-upload">PDF 구조 파싱 중...</div>
       <div class="step" id="step-analyze">Gemini 참고문헌 분석 중...</div>
       <div class="step" id="step-match">다운로드 링크 매칭 중...</div>
@@ -91,9 +92,12 @@ async function uploadFile(file){
     setPhase(2);
 
     if(!resp.ok){
-      const err = await resp.json().catch(()=>({error:'unknown'}));
+      const dataErr = await resp.json().catch(()=>({error:'unknown'}));
+      const errMsg = dataErr.error || `서버 오류: ${resp.status}`;
       statusText.textContent = '오류 발생';
-      resultsEl.innerHTML = `<div class="no-results">서버 오류: ${err.error || resp.status}</div>`;
+      const errorArea = document.getElementById('error-area');
+      if(errorArea){ errorArea.style.display='block'; errorArea.textContent = errMsg; }
+      resultsEl.innerHTML = `<div class="no-results">${errMsg}</div>`;
       return;
     }
 
@@ -105,7 +109,10 @@ async function uploadFile(file){
     renderResults(data);
   }catch(err){
     statusText.textContent = '네트워크 오류';
-    resultsEl.innerHTML = `<div class="no-results">업로드 실패: ${err.message}</div>`;
+    const errorArea = document.getElementById('error-area');
+    const msg = err && err.message ? err.message : String(err);
+    if(errorArea){ errorArea.style.display='block'; errorArea.textContent = msg; }
+    resultsEl.innerHTML = `<div class="no-results">업로드 실패: ${msg}</div>`;
   }
 }
 

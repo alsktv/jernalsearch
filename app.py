@@ -58,7 +58,10 @@ def extract_text_from_pdf_bytes(pdf_bytes: bytes, last_n_pages: int = 5) -> str:
 
 
 def call_gemini_extract_references(text: str, max_items: int = 5) -> List[Dict[str, Any]]:
-    """Call Gemini to extract up to max_items references as JSON array of {title, authors, year}."""
+    """Call Gemini to extract up to max_items references as JSON array of {title, authors, year}.
+    This function sanitizes Gemini output by removing markdown code fences and extracting the first JSON array found.
+    """
+    import re
     system_instr = (
         "You are a precise extractor. Given a block of text that contains the References section of an academic paper,"
         " extract up to " + str(max_items) + " cited works. For each cited work return an object with exactly these keys:"
@@ -69,11 +72,9 @@ def call_gemini_extract_references(text: str, max_items: int = 5) -> List[Dict[s
 
     if not GEMINI_API_KEY:
         logging.warning('GEMINI not configured; falling back to heuristic extraction')
-        # simple heuristic: collect lines that look like citations (contain a 4-digit year)
         lines = [l.strip() for l in text.splitlines() if l.strip()]
         candidates = []
         for l in lines:
-            # naive detection of year
             for y in range(1900, 2031):
                 if str(y) in l:
                     candidates.append({"title": l[:240], "authors": None, "year": y})
@@ -83,16 +84,15 @@ def call_gemini_extract_references(text: str, max_items: int = 5) -> List[Dict[s
         return candidates
 
     try:
-        # messages: system then user
         messages = [
             {"role": "system", "content": system_instr},
             {"role": "user", "content": user_msg}
         ]
         resp = genai.chat.create(model="gemini-1.5-flash", messages=messages, max_output_tokens=800)
-        # Extract textual content from response robustly
+
+        # Extract textual content safely
         content = ''
         try:
-            # common SDK shapes
             if isinstance(resp, dict):
                 if 'candidates' in resp and resp['candidates']:
                     candidate = resp['candidates'][0]
@@ -100,23 +100,33 @@ def call_gemini_extract_references(text: str, max_items: int = 5) -> List[Dict[s
                         content = candidate.get('content') or candidate.get('message') or ''
                 elif 'output' in resp:
                     out = resp['output']
-                    if isinstance(out, list):
-                        content = ' '.join([str(o) for o in out])
-                    else:
-                        content = str(out)
+                    content = ' '.join([str(o) for o in out]) if isinstance(out, list) else str(out)
             else:
-                # object-like
-                try:
-                    content = resp.candidates[0].content
-                except Exception:
-                    content = str(resp)
+                content = getattr(resp, 'output_text', None) or str(resp)
         except Exception:
             content = str(resp)
 
-        # find JSON array in content
-        start = content.find('[')
-        end = content.rfind(']')
-        json_blob = content[start:end+1] if start != -1 and end != -1 and end > start else content
+        # Sanitize common markdown wrappers like ```json ... ``` or ``` ... ```
+        content = re.sub(r"```json\s*", "", content, flags=re.IGNORECASE)
+        content = re.sub(r"```\s*", "", content)
+
+        # Attempt to extract the first JSON array from the content
+        m = re.search(r"(\[\s*\{.*?\}\s*\])", content, flags=re.DOTALL)
+        json_blob = None
+        if m:
+            json_blob = m.group(1)
+        else:
+            # fallback: find first '[' and last ']' and take substring
+            start = content.find('[')
+            end = content.rfind(']')
+            if start != -1 and end != -1 and end > start:
+                json_blob = content[start:end+1]
+            else:
+                json_blob = content
+
+        # Clean up any remaining backticks
+        json_blob = json_blob.replace('`', '')
+
         parsed = json.loads(json_blob)
         results: List[Dict[str, Any]] = []
         for item in parsed[:max_items]:
@@ -136,8 +146,9 @@ def call_gemini_extract_references(text: str, max_items: int = 5) -> List[Dict[s
                 year = None
             results.append({"title": title, "authors": authors, "year": year})
         return results
-    except Exception:
-        logging.exception('Gemini extraction failed; returning empty list')
+    except Exception as e:
+        logging.exception('Gemini extraction failed; returning empty list: %s', e)
+        print(f"[ERROR] Gemini extraction/parsing failed: {str(e)}")
         return []
 
 
@@ -191,31 +202,73 @@ def index():
 
 @app.route('/api/upload-pdf', methods=['POST'])
 def upload_pdf():
-    """Accepts a multipart/form-data file field named 'file', extracts references, searches for PDFs, returns list."""
+    """Accepts a multipart/form-data file field named 'file', extracts references, searches for PDFs, returns list.
+    Enhanced error reporting: prints and returns detailed error messages for debugging.
+    """
     uploaded = request.files.get('file')
     if not uploaded:
         return jsonify({"error": "no file uploaded"}), 400
+
     try:
-        pdf_bytes = uploaded.read()
-        text = extract_text_from_pdf_bytes(pdf_bytes, last_n_pages=5)
-        logging.info('Extracted text length=%d', len(text) if text else 0)
+        # Read bytes
+        try:
+            pdf_bytes = uploaded.read()
+        except Exception as e:
+            print(f"[ERROR] 파일 읽기 실패: {str(e)}")
+            logging.exception('파일 읽기 실패')
+            return jsonify({"error": f"서버 처리 오류: 파일 읽기 실패: {str(e)}"}), 500
 
-        refs = call_gemini_extract_references(text, max_items=5)
-        results: List[Dict[str, Any]] = []
+        # Extract text
+        try:
+            text = extract_text_from_pdf_bytes(pdf_bytes, last_n_pages=5)
+            logging.info('Extracted text length=%d', len(text) if text else 0)
+        except Exception as e:
+            print(f"[ERROR] PDF 파싱 중 에러 발생: {str(e)}")
+            logging.exception('PDF 파싱 실패')
+            return jsonify({"error": f"서버 처리 오류: PDF 파싱 실패: {str(e)}"}), 500
+
+        # Call Gemini
+        try:
+            refs = call_gemini_extract_references(text, max_items=5)
+        except Exception as e:
+            print(f"[ERROR] Gemini 처리 중 에러 발생: {str(e)}")
+            logging.exception('Gemini 호출 실패')
+            return jsonify({"error": f"서버 처리 오류: Gemini 호출 실패: {str(e)}"}), 500
+
+        # Validate refs
+        if not isinstance(refs, list):
+            print(f"[ERROR] Gemini 반환 형식 오류: {type(refs)}")
+            logging.error('Gemini 반환 형식 오류')
+            return jsonify({"error": "서버 처리 오류: Gemini 반환 형식이 올바르지 않습니다."}), 500
+
+        results = []
         for r in refs:
-            title = r.get('title') if r else None
-            authors = r.get('authors') if r else None
-            year = r.get('year') if r else None
-            if not title:
-                continue
-            ss = search_semanticscholar_for_title(title)
-            out_title = ss.get('title') or title
-            out_authors = ss.get('authors') or authors
-            out_year = ss.get('year') or year
-            pdf_url = ss.get('pdf_url') if ss.get('pdf_url') else None
-            results.append({"title": out_title, "authors": out_authors, "year": out_year, "pdf_url": pdf_url})
+            try:
+                title = r.get('title') if r else None
+                authors = r.get('authors') if r else None
+                year = r.get('year') if r else None
+                if not title:
+                    continue
+                # Semantic Scholar lookup per title with error capture
+                try:
+                    ss = search_semanticscholar_for_title(title)
+                except Exception as e:
+                    print(f"[ERROR] Semantic Scholar 검색 중 에러 ({title}): {str(e)}")
+                    logging.exception('Semantic Scholar 검색 실패')
+                    ss = {"title": title, "authors": authors, "year": year, "pdf_url": None}
 
-        # dedupe by normalized title
+                out_title = ss.get('title') or title
+                out_authors = ss.get('authors') or authors
+                out_year = ss.get('year') or year
+                pdf_url = ss.get('pdf_url') if ss.get('pdf_url') else None
+                results.append({"title": out_title, "authors": out_authors, "year": out_year, "pdf_url": pdf_url})
+            except Exception as e:
+                print(f"[ERROR] 결과 처리 중 에러 ({r}): {str(e)}")
+                logging.exception('결과 처리 실패')
+                # continue processing other refs
+                continue
+
+        # dedupe
         seen = set()
         dedup = []
         for it in results:
@@ -223,10 +276,14 @@ def upload_pdf():
             if key and key not in seen:
                 seen.add(key)
                 dedup.append(it)
+
         return jsonify(dedup)
-    except Exception:
-        logging.exception('Failed to process uploaded PDF')
-        return jsonify({"error": "internal server error"}), 500
+
+    except Exception as e:
+        # Catch-all for unexpected errors
+        print(f"[ERROR] 업로드 처리 중 예외 발생: {str(e)}")
+        logging.exception('업로드 처리 중 예외')
+        return jsonify({"error": f"서버 처리 오류: {str(e)}"}), 500
 
 
 if __name__ == '__main__':
