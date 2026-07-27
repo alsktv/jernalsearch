@@ -1,6 +1,0 @@
-# Redirect API requests to Flask backend
-# Flask backend running at: http://210.101.130.111:5002
-/api/* http://210.101.130.111:5002/api/:splat 200
-
-# Redirect root to index.html (SPA support)
-/* /index.html 200
