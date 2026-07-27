@@ -58,7 +58,7 @@
       font-size: 0.95rem;
     }
 
-    input[type="text"] {
+    input[type="text"], select {
       width: 100%;
       padding: 10px 12px;
       border: 1px solid var(--border);
@@ -66,9 +66,10 @@
       font-size: 0.95rem;
       box-sizing: border-box;
       outline: none;
+      background-color: #fff;
     }
 
-    input[type="text"]:focus {
+    input[type="text"]:focus, select:focus {
       border-color: var(--primary);
       box-shadow: 0 0 0 2px rgba(26,115,232,0.2);
     }
@@ -153,17 +154,29 @@
 
 <div class="container">
   <h1>🔍 Google Scholar Top-Journal Search Helper</h1>
-  <p class="subtitle">원하는 키워드와 Target 저널을 선택하면 최적화된 구글 스칼라 검색 쿼리를 생성합니다.</p>
+  <p class="subtitle">연구 주제 키워드, 출판 연도 및 Target 저널을 지정하여 맞춤형 쿼리를 생성합니다.</p>
 
   <!-- 1. 키워드 입력 -->
   <div class="form-group">
     <label class="section-title">1. 연구 주제 키워드 (Keywords)</label>
-    <input type="text" id="keywords" placeholder="예: silicon photonics waveguide cutoff" oninput="buildQuery()">
+    <input type="text" id="keywords" placeholder="예: silicon photonics CPO coupling" oninput="buildQuery()">
   </div>
 
-  <!-- 2. Target 저널 선택 -->
+  <!-- 2. 출판 연도 설정 -->
   <div class="form-group">
-    <label class="section-title">2. 검색할 상위 저널 선택 (Target Journals)</label>
+    <label class="section-title">2. 출판 연도 (Date Range)</label>
+    <select id="yearFilter" onchange="buildQuery()">
+      <option value="">전체 기간</option>
+      <option value="2026">2026년 이후 (최신)</option>
+      <option value="2025">2025년 이후 (최근 1년)</option>
+      <option value="2023">2023년 이후 (최근 3년)</option>
+      <option value="2021">2021년 이후 (최근 5년)</option>
+    </select>
+  </div>
+
+  <!-- 3. Target 저널 선택 -->
+  <div class="form-group">
+    <label class="section-title">3. 검색할 상위 저널 선택 (Target Journals)</label>
     <div class="journal-grid">
       <label class="journal-item"><input type="checkbox" value="Nature Photonics" onchange="buildQuery()" checked> Nature Photonics</label>
       <label class="journal-item"><input type="checkbox" value="Optica" onchange="buildQuery()" checked> Optica</label>
@@ -175,9 +188,9 @@
     </div>
   </div>
 
-  <!-- 3. 생성된 쿼리 및 실행 -->
+  <!-- 4. 생성된 쿼리 및 실행 -->
   <div class="output-box">
-    <label class="section-title">3. 생성된 검색 쿼리</label>
+    <label class="section-title">4. 생성된 검색 쿼리</label>
     <div class="query-preview" id="queryDisplay">키워드를 입력해주세요...</div>
     
     <div class="btn-group">
@@ -198,9 +211,9 @@
       return "";
     }
 
-    const journalSources = Array.from(checkboxes).map(cb => `source:"${cb.value}"`);
-    
     let finalQuery = keywordInput;
+
+    const journalSources = Array.from(checkboxes).map(cb => `source:"${cb.value}"`);
     if (journalSources.length > 0) {
       finalQuery += " (" + journalSources.join(" OR ") + ")";
     }
@@ -224,7 +237,14 @@
       alert("검색어를 먼저 입력해주세요.");
       return;
     }
-    const url = `https://scholar.google.com/scholar?q=${encodeURIComponent(query)}`;
+
+    const year = document.getElementById('yearFilter').value;
+    let url = `https://scholar.google.com/scholar?q=${encodeURIComponent(query)}&hl=en`;
+    
+    if (year) {
+      url += `&as_ylo=${year}`;
+    }
+
     window.open(url, '_blank');
   }
 </script>
