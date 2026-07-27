@@ -176,6 +176,21 @@
       background-color: #d2e3fc;
     }
 
+    /* 인용수 정렬 팁 안내 스타일 */
+    .citation-tip {
+      margin-top: 12px;
+      font-size: 0.8rem;
+      color: var(--text-sub);
+      text-align: right;
+      line-height: 1.4;
+    }
+
+    .citation-tip a {
+      color: var(--primary);
+      text-decoration: underline;
+      font-weight: 500;
+    }
+
     /* 우측 기록 카드 스타일 */
     .history-list {
       display: flex;
@@ -252,7 +267,7 @@
   <!-- 메인 폼 영역 -->
   <div class="main-container">
     <h1>🔍 Google Scholar Search Helper</h1>
-    <p class="subtitle">키워드, 기간, 저널을 지정하고 검색 기록을 관리할 수 있습니다.</p>
+    <p class="subtitle">키워드, 기간, Target 저널을 지정하여 고임팩트 논문 검색 쿼리를 생성합니다.</p>
 
     <div class="form-group">
       <label class="section-title">1. 연구 주제 키워드 (Keywords)</label>
@@ -291,6 +306,14 @@
         <button class="btn-secondary" onclick="handleCopy()">쿼리 복사하기</button>
         <button class="btn-primary" onclick="handleSearch()">Google Scholar에서 검색하기 ↗</button>
       </div>
+
+      <!-- 인용수 정렬 관련 팁 안내 -->
+      <div class="citation-tip">
+        💡 구글 스칼라 결과창에서 <b>인용수 내림차순 정렬</b>을 원하시면 
+        <a href="https://chromewebstore.google.com/search/Google%20Scholar%20Citation%20Count%20Sort" target="_blank">
+          Citation Sort 크롬 확장프로그램
+        </a>을 이용해 보세요.
+      </div>
     </div>
   </div>
 
@@ -300,7 +323,7 @@
       🕒 최근 검색 기록 (최대 5개)
     </h2>
     <div id="historyList" class="history-list">
-      <!-- JS로 카드가 여기에 생성됩니다 -->
+      <!-- JS로 카드가 생성됩니다 -->
     </div>
   </div>
 </div>
@@ -313,7 +336,7 @@
     renderHistory();
   });
 
-  // 2. 쿼리 자동 생성을 처리하는 함수
+  // 2. 쿼리 자동 생성 함수
   function buildQuery() {
     const keywordInput = document.getElementById('keywords').value.trim();
     const checkboxes = document.querySelectorAll('.journal-grid input[type="checkbox"]:checked');
@@ -334,7 +357,7 @@
     return finalQuery;
   }
 
-  // 3. 검색 기록을 저장하는 핵심 로직 (최대 5개 저장)
+  // 3. 검색 기록 저장 (최대 5개)
   function saveHistory() {
     const keyword = document.getElementById('keywords').value.trim();
     if (!keyword) return;
@@ -356,10 +379,8 @@
 
     let history = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
     
-    // 동일한 키워드 조건이 있으면 기존 것 제거 (중복 방지)
+    // 중복 키워드 제거 후 맨 앞에 추가
     history = history.filter(item => item.keyword !== keyword);
-    
-    // 맨 앞에 추가 후 최근 5개만 유지
     history.unshift(historyItem);
     if (history.length > 5) {
       history = history.slice(0, 5);
@@ -369,7 +390,7 @@
     renderHistory();
   }
 
-  // 4. 저장된 기록을 화면 우측 카드로 출력하는 함수
+  // 4. 저장된 기록을 사이드바 카드로 출력
   function renderHistory() {
     const historyList = document.getElementById('historyList');
     const history = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
@@ -393,29 +414,24 @@
     `).join('');
   }
 
-  // 5. 우측 카드를 누르면 폼 데이터 복원
+  // 5. 클릭 시 해당 검색 조건 전체 복원
   function restoreHistory(id) {
     const history = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
     const target = history.find(item => item.id === id);
     if (!target) return;
 
-    // 키워드 입력
     document.getElementById('keywords').value = target.keyword;
-
-    // 연도 선택
     document.getElementById('yearFilter').value = target.year || "";
 
-    // 저널 체크박스 상태 복원
     const checkboxes = document.querySelectorAll('.journal-grid input[type="checkbox"]');
     checkboxes.forEach(cb => {
       cb.checked = target.journals.includes(cb.value);
     });
 
-    // 쿼리 다시 빌드
     buildQuery();
   }
 
-  // 6. 복사 및 검색 실행 시 저장 함수 호출
+  // 6. 실행 액션
   function handleCopy() {
     const query = buildQuery();
     if (!query) return;
