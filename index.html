@@ -25,9 +25,16 @@
       justify-content: center;
     }
 
-    .container {
+    /* 2열 레이아웃 (메인 폼 + 우측 히스토리) */
+    .app-layout {
+      display: flex;
+      gap: 20px;
       width: 100%;
-      max-width: 720px;
+      max-width: 1040px;
+    }
+
+    .main-container {
+      flex: 1;
       background: var(--card-bg);
       border-radius: 12px;
       padding: 28px;
@@ -35,10 +42,30 @@
       border: 1px solid var(--border);
     }
 
+    .history-sidebar {
+      width: 300px;
+      background: var(--card-bg);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
+      border: 1px solid var(--border);
+      height: fit-content;
+    }
+
     h1 {
       font-size: 1.4rem;
       margin-top: 0;
       color: var(--primary);
+    }
+
+    h2.sidebar-title {
+      font-size: 1.05rem;
+      margin-top: 0;
+      margin-bottom: 16px;
+      color: var(--text-main);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
 
     p.subtitle {
@@ -76,7 +103,7 @@
 
     .journal-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
       gap: 10px;
       margin-top: 8px;
     }
@@ -105,7 +132,7 @@
 
     .query-preview {
       font-family: monospace;
-      font-size: 0.9rem;
+      font-size: 0.88rem;
       background: #ffffff;
       padding: 10px;
       border: 1px solid var(--border);
@@ -148,59 +175,145 @@
     .btn-secondary:hover {
       background-color: #d2e3fc;
     }
+
+    /* 우측 기록 카드 스타일 */
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .history-card {
+      background: #f8f9fa;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      cursor: pointer;
+      transition: border-color 0.2s, background-color 0.2s;
+    }
+
+    .history-card:hover {
+      border-color: var(--primary);
+      background-color: #e8f0fe;
+    }
+
+    .history-keyword {
+      font-weight: 600;
+      font-size: 0.9rem;
+      color: var(--text-main);
+      margin-bottom: 4px;
+      word-break: break-all;
+    }
+
+    .history-meta {
+      font-size: 0.78rem;
+      color: var(--text-sub);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+
+    .history-tag {
+      background: #e8eaed;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .history-journals {
+      font-size: 0.78rem;
+      color: var(--primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .empty-history {
+      font-size: 0.85rem;
+      color: var(--text-sub);
+      text-align: center;
+      padding: 20px 0;
+    }
+
+    @media (max-width: 850px) {
+      .app-layout {
+        flex-direction: column;
+      }
+      .history-sidebar {
+        width: 100%;
+        box-sizing: border-box;
+      }
+    }
   </style>
 </head>
 <body>
 
-<div class="container">
-  <h1>🔍 Google Scholar Top-Journal Search Helper</h1>
-  <p class="subtitle">연구 주제 키워드, 출판 연도 및 Target 저널을 지정하여 맞춤형 쿼리를 생성합니다.</p>
+<div class="app-layout">
+  <!-- 메인 폼 영역 -->
+  <div class="main-container">
+    <h1>🔍 Google Scholar Search Helper</h1>
+    <p class="subtitle">키워드, 기간, 저널을 지정하고 검색 기록을 관리할 수 있습니다.</p>
 
-  <!-- 1. 키워드 입력 -->
-  <div class="form-group">
-    <label class="section-title">1. 연구 주제 키워드 (Keywords)</label>
-    <input type="text" id="keywords" placeholder="예: silicon photonics CPO coupling" oninput="buildQuery()">
-  </div>
+    <div class="form-group">
+      <label class="section-title">1. 연구 주제 키워드 (Keywords)</label>
+      <input type="text" id="keywords" placeholder="예: silicon photonics CPO coupling" oninput="buildQuery()">
+    </div>
 
-  <!-- 2. 출판 연도 설정 -->
-  <div class="form-group">
-    <label class="section-title">2. 출판 연도 (Date Range)</label>
-    <select id="yearFilter" onchange="buildQuery()">
-      <option value="">전체 기간</option>
-      <option value="2026">2026년 이후 (최신)</option>
-      <option value="2025">2025년 이후 (최근 1년)</option>
-      <option value="2023">2023년 이후 (최근 3년)</option>
-      <option value="2021">2021년 이후 (최근 5년)</option>
-    </select>
-  </div>
+    <div class="form-group">
+      <label class="section-title">2. 출판 연도 (Date Range)</label>
+      <select id="yearFilter" onchange="buildQuery()">
+        <option value="">전체 기간</option>
+        <option value="2026">2026년 이후 (최신)</option>
+        <option value="2025">2025년 이후 (최근 1년)</option>
+        <option value="2023">2023년 이후 (최근 3년)</option>
+        <option value="2021">2021년 이후 (최근 5년)</option>
+      </select>
+    </div>
 
-  <!-- 3. Target 저널 선택 -->
-  <div class="form-group">
-    <label class="section-title">3. 검색할 상위 저널 선택 (Target Journals)</label>
-    <div class="journal-grid">
-      <label class="journal-item"><input type="checkbox" value="Nature Photonics" onchange="buildQuery()" checked> Nature Photonics</label>
-      <label class="journal-item"><input type="checkbox" value="Optica" onchange="buildQuery()" checked> Optica</label>
-      <label class="journal-item"><input type="checkbox" value="ACS Photonics" onchange="buildQuery()" checked> ACS Photonics</label>
-      <label class="journal-item"><input type="checkbox" value="Journal of Lightwave Technology" onchange="buildQuery()" checked> J. Lightwave Technol. (JLT)</label>
-      <label class="journal-item"><input type="checkbox" value="Optics Letters" onchange="buildQuery()"> Optics Letters</label>
-      <label class="journal-item"><input type="checkbox" value="Optics Express" onchange="buildQuery()"> Optics Express</label>
-      <label class="journal-item"><input type="checkbox" value="Laser & Photonics Reviews" onchange="buildQuery()"> Laser & Photonics Rev.</label>
+    <div class="form-group">
+      <label class="section-title">3. Target 저널 선택</label>
+      <div class="journal-grid">
+        <label class="journal-item"><input type="checkbox" value="Nature Photonics" onchange="buildQuery()" checked> Nature Photonics</label>
+        <label class="journal-item"><input type="checkbox" value="Optica" onchange="buildQuery()" checked> Optica</label>
+        <label class="journal-item"><input type="checkbox" value="ACS Photonics" onchange="buildQuery()" checked> ACS Photonics</label>
+        <label class="journal-item"><input type="checkbox" value="Journal of Lightwave Technology" onchange="buildQuery()" checked> J. Lightwave Technol.</label>
+        <label class="journal-item"><input type="checkbox" value="Optics Letters" onchange="buildQuery()"> Optics Letters</label>
+        <label class="journal-item"><input type="checkbox" value="Optics Express" onchange="buildQuery()"> Optics Express</label>
+        <label class="journal-item"><input type="checkbox" value="Laser & Photonics Reviews" onchange="buildQuery()"> Laser & Photonics Rev.</label>
+      </div>
+    </div>
+
+    <div class="output-box">
+      <label class="section-title">4. 생성된 검색 쿼리</label>
+      <div class="query-preview" id="queryDisplay">키워드를 입력해주세요...</div>
+      
+      <div class="btn-group">
+        <button class="btn-secondary" onclick="handleCopy()">쿼리 복사하기</button>
+        <button class="btn-primary" onclick="handleSearch()">Google Scholar에서 검색하기 ↗</button>
+      </div>
     </div>
   </div>
 
-  <!-- 4. 생성된 쿼리 및 실행 -->
-  <div class="output-box">
-    <label class="section-title">4. 생성된 검색 쿼리</label>
-    <div class="query-preview" id="queryDisplay">키워드를 입력해주세요...</div>
-    
-    <div class="btn-group">
-      <button class="btn-secondary" onclick="copyQuery()">쿼리 복사하기</button>
-      <button class="btn-primary" onclick="openScholar()">Google Scholar에서 검색하기 ↗</button>
+  <!-- 우측 검색 기록 사이드바 -->
+  <div class="history-sidebar">
+    <h2 class="sidebar-title">
+      🕒 최근 검색 기록 (최대 5개)
+    </h2>
+    <div id="historyList" class="history-list">
+      <!-- JS로 카드가 여기에 생성됩니다 -->
     </div>
   </div>
 </div>
 
 <script>
+  const STORAGE_KEY = 'scholar_search_history';
+
+  // 1. 페이지 로드 시 기존 기록 불러오기
+  document.addEventListener('DOMContentLoaded', () => {
+    renderHistory();
+  });
+
+  // 2. 쿼리 자동 생성을 처리하는 함수
   function buildQuery() {
     const keywordInput = document.getElementById('keywords').value.trim();
     const checkboxes = document.querySelectorAll('.journal-grid input[type="checkbox"]:checked');
@@ -212,7 +325,6 @@
     }
 
     let finalQuery = keywordInput;
-
     const journalSources = Array.from(checkboxes).map(cb => `source:"${cb.value}"`);
     if (journalSources.length > 0) {
       finalQuery += " (" + journalSources.join(" OR ") + ")";
@@ -222,30 +334,118 @@
     return finalQuery;
   }
 
-  function copyQuery() {
+  // 3. 검색 기록을 저장하는 핵심 로직 (최대 5개 저장)
+  function saveHistory() {
+    const keyword = document.getElementById('keywords').value.trim();
+    if (!keyword) return;
+
+    const year = document.getElementById('yearFilter').value;
+    const yearText = document.getElementById('yearFilter').options[document.getElementById('yearFilter').selectedIndex].text;
+    
+    const selectedJournals = Array.from(
+      document.querySelectorAll('.journal-grid input[type="checkbox"]:checked')
+    ).map(cb => cb.value);
+
+    const historyItem = {
+      id: Date.now(),
+      keyword: keyword,
+      year: year,
+      yearText: year ? yearText.split(' ')[0] : '전체 기간',
+      journals: selectedJournals
+    };
+
+    let history = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    
+    // 동일한 키워드 조건이 있으면 기존 것 제거 (중복 방지)
+    history = history.filter(item => item.keyword !== keyword);
+    
+    // 맨 앞에 추가 후 최근 5개만 유지
+    history.unshift(historyItem);
+    if (history.length > 5) {
+      history = history.slice(0, 5);
+    }
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+    renderHistory();
+  }
+
+  // 4. 저장된 기록을 화면 우측 카드로 출력하는 함수
+  function renderHistory() {
+    const historyList = document.getElementById('historyList');
+    const history = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+
+    if (history.length === 0) {
+      historyList.innerHTML = `<div class="empty-history">저장된 검색 기록이 없습니다.</div>`;
+      return;
+    }
+
+    historyList.innerHTML = history.map(item => `
+      <div class="history-card" onclick="restoreHistory(${item.id})">
+        <div class="history-keyword">${escapeHtml(item.keyword)}</div>
+        <div class="history-meta">
+          <span class="history-tag">📅 ${escapeHtml(item.yearText)}</span>
+          <span class="history-tag">📚 저널 ${item.journals.length}개</span>
+        </div>
+        <div class="history-journals" title="${escapeHtml(item.journals.join(', '))}">
+          ${item.journals.length > 0 ? escapeHtml(item.journals.join(', ')) : '지정 안 됨'}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  // 5. 우측 카드를 누르면 폼 데이터 복원
+  function restoreHistory(id) {
+    const history = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    const target = history.find(item => item.id === id);
+    if (!target) return;
+
+    // 키워드 입력
+    document.getElementById('keywords').value = target.keyword;
+
+    // 연도 선택
+    document.getElementById('yearFilter').value = target.year || "";
+
+    // 저널 체크박스 상태 복원
+    const checkboxes = document.querySelectorAll('.journal-grid input[type="checkbox"]');
+    checkboxes.forEach(cb => {
+      cb.checked = target.journals.includes(cb.value);
+    });
+
+    // 쿼리 다시 빌드
+    buildQuery();
+  }
+
+  // 6. 복사 및 검색 실행 시 저장 함수 호출
+  function handleCopy() {
     const query = buildQuery();
     if (!query) return;
-    
+
+    saveHistory();
     navigator.clipboard.writeText(query).then(() => {
-      alert("검색 쿼리가 클립보드에 복사되었습니다!");
+      alert("검색 쿼리가 복사되고 최근 기록에 저장되었습니다!");
     });
   }
 
-  function openScholar() {
+  function handleSearch() {
     const query = buildQuery();
     if (!query) {
       alert("검색어를 먼저 입력해주세요.");
       return;
     }
 
+    saveHistory();
+
     const year = document.getElementById('yearFilter').value;
     let url = `https://scholar.google.com/scholar?q=${encodeURIComponent(query)}&hl=en`;
-    
     if (year) {
       url += `&as_ylo=${year}`;
     }
 
     window.open(url, '_blank');
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 </script>
 
